@@ -1,4 +1,4 @@
-<?php require_once 'includes/config.php'; ?>
+<?php require_once '../includes/config.php'; ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -147,14 +147,14 @@
     </style>
 </head>
 <body>
-    <?php include 'includes/header.php'; ?>
+    <?php include '../includes/header.php'; ?>
     
     <div class="main-content">
         <h1>Ajouter un Nouvel Étudiant</h1>
         
         <?php
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            require_once 'includes/functions.php';
+            require_once '../includes/functions.php';
             
             // Traitement du formulaire
             $data = [
@@ -180,7 +180,7 @@
                             (nom, prenom, code_massar, numero_apogee, filiere, cycle, numero_etudiant, photo_path) 
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                         
-                        if ($stmt->execute(
+                        if ($stmt->execute([
                             $data['nom'],
                             $data['prenom'],
                             $data['code_massar'],
@@ -261,6 +261,6 @@
         </div>
     </div>
     
-    <?php include 'includes/footer.php'; ?>
+    <?php include '../includes/footer.php'; ?>
 </body>
 </html>
