@@ -1,4 +1,4 @@
--- phpMyAdmin SQL Dump
+ -- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
@@ -166,7 +166,7 @@ CREATE TABLE `utilisateurs` (
 
 INSERT INTO `utilisateurs` (`id`, `nom`, `prenom`, `email`, `password`, `role`, `created_at`) VALUES
 (2, 'mrimi', 'mustapha', 'mrimimustapha0@gmail.com', '$2y$10$N/XzFK6cDfC4R7IJVB2ELOR7GX.AoGKxJLBAHjTzDdgDlcBIDCAFq', 'professeur', '2025-05-22 10:09:34'),
-(3, 'ouary', 'imane', 'ouaryimane0@gmail.com', '$2y$10$o9gF97labX9NPJUlJn6D2OUNizENhtu8vmPVlErVj3f5ldjmhT7k6', 'etudiant', '2025-05-22 10:10:12'),
+(3, 'ouary', 'imane', 'ouaryimane0@gmail.com', '$2y$12$2B1eCVTyTtjZoXKPEBVIxOLunaiG84F1Bnl9BLZe9EzrueaJiAI5W', 'etudiant', '2025-05-22 10:10:12'),
 (4, 'essbai', 'salma', 'essbaisalma0@gmail.com', '$2y$10$9nw.g9yaePM5koWTPG60t.fyzXSwX/RQj5LyvgmSkVp89veOvnh0.', 'etudiant', '2025-05-22 10:12:03');
 
 --

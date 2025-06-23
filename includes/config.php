@@ -8,7 +8,7 @@ define('DB_PASS', ''); // Mot de passe vide par défaut avec XAMPP
 // Connexion PDO
 try {
     $pdo = new PDO(
-        'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset=utf8',
+        'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset=utf8mb4', // <-- Changer ici
         DB_USER,
         DB_PASS,
         [
