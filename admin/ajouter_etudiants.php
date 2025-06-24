@@ -210,171 +210,6 @@ if (isset($_POST['export'])) {
             }
             break;
 
-        case 'all_student_details':
-            // En-têtes pour la liste complète des détails des étudiants
-            fputcsv($output, [
-                'ID Etudiant', 'Nom', 'Prénom', 'Numéro Etudiant', 'Code Massar', 'Numéro Apogée',
-                'Cycle', 'Nom Classe', 'Niveau Classe', 'Filière', 'Année Universitaire', 'Email Utilisateur', 'Photo Path'
-            ]);
-
-            $sql = "SELECT 
-                        e.id, e.nom, e.prenom, e.numero_etudiant, e.code_massar, e.numero_apogee,
-                        e.cycle, c.nom_classe, c.niveau, f.nom_filiere AS filiere_nom, c.annee_universitaire,
-                        u.email AS user_email, e.photo_path
-                    FROM etudiants e
-                    LEFT JOIN classes c ON e.classe_id = c.id
-                    LEFT JOIN filieres f ON e.filiere_id = f.id
-                    LEFT JOIN utilisateurs u ON e.user_id = u.id";
-
-            $conditions = [];
-            $params = [];
-            if (!empty($annee_universitaire_safe)) {
-                $conditions[] = "c.annee_universitaire = :annee_universitaire";
-                $params[':annee_universitaire'] = $annee_universitaire_safe;
-            }
-            if (!empty($classe_id_safe)) {
-                $conditions[] = "c.id = :classe_id";
-                $params[':classe_id'] = (int)$classe_id_safe;
-            }
-
-            if (!empty($conditions)) {
-                $sql .= " WHERE " . implode(' AND ', $conditions);
-            }
-            $sql .= " ORDER BY c.nom_classe, e.nom, e.prenom";
-
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($output, $row);
-            }
-            break;
-
-        case 'timetables':
-            // Pour le tri des jours de la semaine (MySQL-specific FIELD function)
-            $day_order_csv_friendly = [
-                'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'
-            ];
-            $day_order_sql = "'" . implode("', '", $day_order_csv_friendly) . "'"; // Pour la clause FIELD()
-
-            // Si une classe spécifique est sélectionnée, on tente une présentation par grille (jours verticaux, heures horizontales)
-            if (!empty($classe_id_safe)) {
-                // Récupérer les informations de la classe pour le titre
-                $stmt_class_info = $pdo->prepare("SELECT nom_classe, annee_universitaire, niveau, f.nom_filiere AS filiere_nom
-                                                  FROM classes c JOIN filieres f ON c.filiere_id = f.id WHERE c.id = :classe_id");
-                $stmt_class_info->execute([':classe_id' => (int)$classe_id_safe]);
-                $class_info = $stmt_class_info->fetch(PDO::FETCH_ASSOC);
-
-                if ($class_info) {
-                    // Ajouter des informations d'en-tête pour la classe spécifique
-                    fputcsv($output, [""]); // Ligne vide pour la séparation
-                    fputcsv($output, ["Emploi du Temps pour la Classe:", $class_info['nom_classe']]);
-                    fputcsv($output, ["Niveau:", $class_info['niveau']]);
-                    fputcsv($output, ["Filière:", $class_info['filiere_nom']]);
-                    fputcsv($output, ["Année Universitaire:", $class_info['annee_universitaire']]);
-                    fputcsv($output, [""]); // Ligne vide pour la séparation
-
-                    // Récupérer tous les cours pour cette classe
-                    $sql_lessons = "SELECT edt.jour_semaine, edt.heure_debut, edt.heure_fin, edt.matiere, edt.enseignant, edt.salle
-                                    FROM emploi_du_temps edt
-                                    WHERE edt.classe_id = :classe_id
-                                    ORDER BY FIELD(edt.jour_semaine, $day_order_sql), edt.heure_debut";
-                    $stmt_lessons = $pdo->prepare($sql_lessons);
-                    $stmt_lessons->execute([':classe_id' => (int)$classe_id_safe]);
-                    $lessons_raw = $stmt_lessons->fetchAll(PDO::FETCH_ASSOC);
-
-                    if (!empty($lessons_raw)) {
-                        // Organiser les leçons dans une grille pour le format souhaité (jours verticaux, heures horizontales)
-                        $timetable_grid = [];
-                        $all_unique_time_slots = [];
-
-                        foreach ($lessons_raw as $lesson) {
-                            $time_slot_key = substr($lesson['heure_debut'], 0, 5) . '-' . substr($lesson['heure_fin'], 0, 5);
-                            
-                            // Concaténer le contenu de la cellule
-                            $cell_content = $lesson['matiere'];
-                            if (!empty($lesson['enseignant'])) $cell_content .= " (" . $lesson['enseignant'] . ")";
-                            if (!empty($lesson['salle'])) $cell_content .= " [" . $lesson['salle'] . "]";
-                            
-                            // Si plusieurs cours dans le même créneau, ajoutez une nouvelle ligne
-                            if (isset($timetable_grid[$lesson['jour_semaine']][$time_slot_key])) {
-                                $timetable_grid[$lesson['jour_semaine']][$time_slot_key] .= "\n" . $cell_content;
-                            } else {
-                                $timetable_grid[$lesson['jour_semaine']][$time_slot_key] = $cell_content;
-                            }
-                            
-                            $all_unique_time_slots[$time_slot_key] = true;
-                        }
-                        
-                        ksort($all_unique_time_slots); // Tri des créneaux horaires
-                        $all_unique_time_slots = array_keys($all_unique_time_slots);
-
-                        // En-tête du tableau CSV : Jour + toutes les heures uniques
-                        fputcsv($output, array_merge(['Jour'], $all_unique_time_slots));
-
-                        // Remplir les lignes pour chaque jour
-                        foreach ($day_order_csv_friendly as $day) {
-                            $row_data = [$day]; // Commence la ligne avec le nom du jour
-                            foreach ($all_unique_time_slots as $time_slot) {
-                                // Récupère le contenu de la cellule pour ce jour et ce créneau horaire
-                                $row_data[] = isset($timetable_grid[$day][$time_slot]) ? $timetable_grid[$day][$time_slot] : '';
-                            }
-                            fputcsv($output, $row_data);
-                        }
-                    } else {
-                        fputcsv($output, ["Aucun emploi du temps trouvé pour cette classe."]);
-                    }
-                } else {
-                    fputcsv($output, ["Classe non trouvée pour l'exportation de l'emploi du temps."]);
-                }
-            } else { // Si aucune classe spécifique n'est sélectionnée (toutes les classes)
-                // Exportation linéaire avec séparateurs de classe
-                fputcsv($output, [
-                    'Nom Classe', 'Niveau Classe', 'Filière Classe', 'Année Universitaire',
-                    'Jour Semaine', 'Heure Début', 'Heure Fin', 'Matière', 'Enseignant (Prof)', 'Salle'
-                ]);
-
-                $sql = "SELECT 
-                            c.nom_classe, c.niveau, f.nom_filiere AS filiere_classe, c.annee_universitaire,
-                            edt.jour_semaine, edt.heure_debut, edt.heure_fin, edt.matiere, edt.enseignant, edt.salle
-                        FROM emploi_du_temps edt
-                        JOIN classes c ON edt.classe_id = c.id
-                        LEFT JOIN filieres f ON c.filiere_id = f.id"; // Jointure pour la filière de la classe
-
-                $conditions = [];
-                $params = [];
-                if (!empty($annee_universitaire_safe)) {
-                    $conditions[] = "c.annee_universitaire = :annee_universitaire";
-                    $params[':annee_universitaire'] = $annee_universitaire_safe;
-                }
-
-                if (!empty($conditions)) {
-                    $sql .= " WHERE " . implode(' AND ', $conditions);
-                }
-                $sql .= " ORDER BY c.nom_classe, FIELD(edt.jour_semaine, $day_order_sql), edt.heure_debut";
-                
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute($params);
-
-                $current_class_name = '';
-                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                    if ($row['nom_classe'] !== $current_class_name) {
-                        if ($current_class_name !== '') {
-                            fputcsv($output, [""]); // Ligne vide pour séparer les classes
-                            fputcsv($output, ["--- Emploi du temps pour " . $row['nom_classe'] . " ---"]); // Séparateur clair
-                            fputcsv($output, [""]);
-                            fputcsv($output, [
-                                'Nom Classe', 'Niveau Classe', 'Filière Classe', 'Année Universitaire',
-                                'Jour Semaine', 'Heure Début', 'Heure Fin', 'Matière', 'Enseignant (Prof)', 'Salle'
-                            ]); // Ré-afficher les en-têtes
-                        }
-                        $current_class_name = $row['nom_classe'];
-                    }
-                    fputcsv($output, $row);
-                }
-            }
-            break;
-
         default:
             fputcsv($output, ['Erreur', 'Type d\'exportation non valide.']);
             break;
@@ -482,8 +317,6 @@ if ($stmt_classes_form) {
                 <select name="export_type" id="export_type" class="rounded-md">
                     <option value="classes_summary">Résumé des Classes</option>
                     <option value="absences_summary">Résumé des Absences</option>
-                    <option value="all_student_details">Liste des Étudiants (Détails Complets)</option>
-                    <option value="timetables">Emplois du Temps (par Classe)</option>
                     <option value="student_accounts_by_class">Comptes Étudiants (Email/Mdp initial)</option>
                     <option value="professor_accounts">Comptes Professeurs (Email/Mdp initial)</option>
                     <option value="admin_activity_log">Journal d'Activité Admin</option>
@@ -523,11 +356,7 @@ if ($stmt_classes_form) {
             function toggleFilters() {
                 const selectedType = exportTypeSelect.value;
                 // Les filtres d'année et de classe sont pertinents pour ces types d'exportation
-                if (selectedType === 'student_accounts_by_class' || 
-                    selectedType === 'absences_summary' || 
-                    selectedType === 'classes_summary' ||
-                    selectedType === 'all_student_details' || 
-                    selectedType === 'timetables') { 
+                if (selectedType === 'student_accounts_by_class' || selectedType === 'absences_summary' || selectedType === 'classes_summary') {
                     filtersSection.style.display = 'block'; // Afficher le filtre d'année
                     classeFilterGroup.style.display = 'block'; // Afficher le filtre de classe
                 } else {

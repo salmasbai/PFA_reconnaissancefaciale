@@ -1,18 +1,18 @@
 <?php
 require_once '../includes/config.php'; // Connexion PDO
-session_start();
+/* session_start();
 
 // Assurez-vous que seul l'admin accède à ce dashboard
 if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
     header('Location: ../authentification/login.php');
     exit;
-}
+}*/
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard Admin - PFA_PROJECT_TEST1</title>
+    <title>Dashboard Admin </title>
     <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
@@ -109,6 +109,13 @@ if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
                 <i class="fas fa-layer-group"></i>
                 <h3>Gestion des Classes</h3>
                 <a href="classes.php">Accéder</a>
+            </div>
+
+            <!-- Nouvelle carte pour la Gestion des Filières -->
+            <div class="card">
+                <i class="fas fa-sitemap"></i> <!-- Icône pour les filières/structures -->
+                <h3>Gestion des Filières</h3>
+                <a href="gestion_filieres.php">Accéder</a>
             </div>
 
             <div class="card">
