@@ -4,7 +4,7 @@ session_start();
 $lang = "fr"; // tu pourras plus tard le détecter dynamiquement
 ?>
 
-<?php include('header.php'); ?> <!-- Tu dois créer ce fichier avec <head> etc. -->
+<?php include('includes/header.php'); ?> 
 
 <body>
 
@@ -12,7 +12,6 @@ $lang = "fr"; // tu pourras plus tard le détecter dynamiquement
   <a class="navbar-brand" href="#">Reconnaissance Faciale</a>
   <button class="btn btn-outline-light ms-auto toggle-dark"><i class="bi bi-moon-fill"></i></button>
 </nav>
-
 <header class="container text-center mt-5">
   <h1 class="display-4">Bienvenue sur le système de présence intelligente</h1>
   <p class="lead">Une solution rapide, sécurisée et intelligente pour l'enregistrement des absences.</p>

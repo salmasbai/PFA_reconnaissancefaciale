@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <button type="submit" class="btn btn-primary w-100"><?= htmlspecialchars($lang['login'] ?? 'Se connecter') ?></button>
         </form>
         <p class="text-center mt-3">
-            <a href="#"><?= htmlspecialchars($lang['forgot_password'] ?? 'Mot de passe oublié ?') ?></a>
+            <a href="../forgot_password.php"><?= htmlspecialchars($lang['forgot_password'] ?? 'Mot de passe oublié ?') ?></a>
         </p>
         <p class="text-center mt-2">
             <a href="change_password.php"><?= htmlspecialchars($lang['change_initial_password'] ?? 'Changer mon mot de passe initial') ?></a>
