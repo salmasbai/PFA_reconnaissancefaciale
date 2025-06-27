@@ -7,7 +7,6 @@ require_once "../lang/{$lang_code}.php";
 $error_message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Changement ici : on récupère l'email au lieu du 'numero_apogee'
     $email = isset($_POST['email']) ? $_POST['email'] : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
@@ -15,13 +14,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error_message = $lang['login_empty_fields'] ?? 'Veuillez remplir tous les champs.';
     } else {
         try {
-            // Requête pour récupérer l'utilisateur (étudiant) en utilisant l'email académique
-            $stmt = $pdo->prepare("SELECT u.id, u.email, u.password AS password_hash, u.nom AS last_name, u.prenom AS first_name, u.role,
-                                           e.numero_etudiant, e.filiere, e.cycle, e.photo_path, e.numero_apogee, e.code_massar
-                                   FROM utilisateurs u
-                                   LEFT JOIN etudiants e ON u.id = e.user_id
-                                   WHERE u.email = ? AND u.role = 'etudiant'"); // Utilisation de u.email pour la recherche
-            $stmt->execute([$email]); // On exécute avec l'email
+            // Updated Query: Join with 'filieres' table to get the filiere name
+            $stmt = $pdo->prepare("
+                SELECT
+                    u.id, u.email, u.password AS password_hash, u.nom AS last_name, u.prenom AS first_name, u.role,
+                    e.numero_etudiant, e.cycle, e.photo_path, e.numero_apogee, e.code_massar,
+                    f.nom_filiere AS filiere_name,  -- Get the filiere name from the 'filieres' table
+                    c.nom_classe as class_name -- Added to get the class name if available
+                FROM
+                    utilisateurs u
+                LEFT JOIN
+                    etudiants e ON u.id = e.user_id
+                LEFT JOIN
+                    filieres f ON e.filiere_id = f.id  -- Join with filieres table
+                LEFT JOIN
+                    classes c ON e.classe_id = c.id -- Join with classes table to get class name
+                WHERE
+                    u.email = ? AND u.role = 'etudiant'
+            ");
+            $stmt->execute([$email]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($user && password_verify($password, $user['password_hash'])) {
@@ -35,23 +46,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Informations spécifiques à l'étudiant
                 $_SESSION['student_numero_etudiant'] = $user['numero_etudiant'];
-                $_SESSION['student_filiere'] = $user['filiere'];
+                $_SESSION['student_filiere'] = $user['filiere_name']; // Use filiere_name
                 $_SESSION['student_cycle'] = $user['cycle'];
                 $_SESSION['student_photo_path'] = $user['photo_path'];
                 $_SESSION['student_numero_apogee'] = $user['numero_apogee'];
                 $_SESSION['student_code_massar'] = $user['code_massar'];
-
-                $_SESSION['user_class'] = $user['filiere'] . ' - ' . $user['cycle']; // Simuler la classe
+                $_SESSION['user_class'] = $user['class_name'] ? $user['class_name'] . ' - ' . $user['cycle'] : $user['cycle']; // Use class_name if available, otherwise just cycle
 
                 header("Location: dashboard.php");
                 exit();
             } else {
-                // Message d'erreur mis à jour pour refléter l'email académique
                 $error_message = $lang['login_invalid_credentials'] ?? 'Email ou mot de passe incorrect.';
             }
         } catch (PDOException $e) {
             $error_message = $lang['login_db_error'] ?? 'Une erreur de base de données est survenue.';
-            error_log("Login error (student): " . $e->getMessage());
+            error_log("Login error (student): " . $e->getMessage()); // This will log the specific SQL error
         }
     }
 }
