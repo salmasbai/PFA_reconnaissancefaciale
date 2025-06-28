@@ -16,20 +16,53 @@ require_once "../lang/{$lang_code}.php";
 // --------------------------------------------------------------------------------------
 // Données de l'étudiant récupérées depuis la session (définies lors de la connexion)
 // --------------------------------------------------------------------------------------
-$student_id = $_SESSION['user_id'];
+$student_user_id = $_SESSION['user_id']; // Renamed to avoid confusion with etudiant.id
 $student_name = $_SESSION['user_name'] ?? 'Utilisateur Inconnu';
 $student_email = $_SESSION['user_email'] ?? 'N/A';
 
-// Informations spécifiques à l'étudiant, si elles existent en session
-$student_numero_etudiant = $_SESSION['student_numero_etudiant'] ?? 'N/A';
-$student_filiere = $_SESSION['student_filiere'] ?? 'N/A';
-$student_cycle = $_SESSION['student_cycle'] ?? 'N/A';
-$student_photo_path = $_SESSION['student_photo_path'] ?? null; // Chemin de la photo pour l'inscription faciale initiale
-$student_numero_apogee = $_SESSION['student_numero_apogee'] ?? 'N/A';
-$student_code_massar = $_SESSION['student_code_massar'] ?? 'N/A';
+// Fetch detailed student info from 'etudiants' table based on user_id
+$etudiant_entity_id = null;
+$student_numero_etudiant = 'N/A';
+$student_filiere = 'N/A';
+$student_cycle = 'N/A';
+$student_photo_path = null;
+$student_numero_apogee = 'N/A';
+$student_code_massar = 'N/A';
+$student_classe_id = null; // Initialize student_classe_id
+$current_class_name = 'N/A'; // For PDF filename
 
-// La "classe" pour l'affichage, combinant filière et cycle
-$student_class = $student_filiere . ' - ' . $student_cycle;
+try {
+    $stmt_student_details = $pdo->prepare("
+        SELECT e.id, e.numero_etudiant, e.photo_path, e.code_massar, e.numero_apogee, e.cycle, c.id AS classe_id, c.nom_classe, f.nom_filiere
+        FROM etudiants e
+        LEFT JOIN classes c ON e.classe_id = c.id
+        LEFT JOIN filieres f ON e.filiere_id = f.id
+        WHERE e.user_id = ?
+    ");
+    $stmt_student_details->execute([$student_user_id]);
+    $student_data = $stmt_student_details->fetch(PDO::FETCH_ASSOC);
+
+    if ($student_data) {
+        $etudiant_entity_id = $student_data['id']; // This is the ID from the 'etudiants' table
+        $student_numero_etudiant = $student_data['numero_etudiant'];
+        $student_filiere = $student_data['nom_filiere'];
+        $student_cycle = $student_data['cycle'];
+        $student_photo_path = $student_data['photo_path'];
+        $student_numero_apogee = $student_data['numero_apogee'];
+        $student_code_massar = $student_data['code_massar'];
+        $student_classe_id = $student_data['classe_id']; // Store classe_id in a variable
+        $current_class_name = $student_data['nom_classe'] ?? 'N/A'; // Get class name for PDF filename
+    }
+} catch (PDOException $e) {
+    error_log("Error fetching student details for user ID " . $student_user_id . ": " . $e->getMessage());
+    // Handle error gracefully
+}
+
+// The "classe" for display, combining filière and cycle
+$student_class = ($student_filiere != 'N/A' ? $student_filiere : '') . ($student_cycle != 'N/A' ? ' - ' . $student_cycle : '');
+if ($student_class === '') {
+    $student_class = 'N/A';
+}
 
 // Date et heure actuelles pour l'affichage
 $current_date = date("d/m/Y");
@@ -40,27 +73,71 @@ $current_time = date("H:i");
 // --------------------------------------------------------------------------------------
 $recent_absences = [];
 try {
-    // D'abord, récupérer l'ID de l'étudiant dans la table 'etudiants' à partir de son 'user_id'
-    $stmt_get_student_entity_id = $pdo->prepare("SELECT id FROM etudiants WHERE user_id = ?");
-    $stmt_get_student_entity_id->execute([$student_id]);
-    $etudiant_entity_id = $stmt_get_student_entity_id->fetchColumn(); // Récupère seulement la valeur de la première colonne
-
     if ($etudiant_entity_id) {
         // Si l'ID de l'entité étudiant est trouvé, récupérer ses absences
         $stmt_absences = $pdo->prepare("SELECT a.date, m.nom AS matiere_nom, a.justifiee
-                                        FROM absences a
-                                        JOIN matieres m ON a.matiere_id = m.id
-                                        WHERE a.etudiant_id = ?
-                                        ORDER BY a.date DESC
-                                        LIMIT 5"); // Limiter aux 5 dernières absences
+                                         FROM absences a
+                                         JOIN matieres m ON a.matiere_id = m.id
+                                         WHERE a.etudiant_id = ?
+                                         ORDER BY a.date DESC
+                                         LIMIT 5"); // Limiter aux 5 dernières absences
         $stmt_absences->execute([$etudiant_entity_id]);
         $recent_absences = $stmt_absences->fetchAll(PDO::FETCH_ASSOC);
     }
 
 } catch (PDOException $e) {
     // Gérer l'erreur de base de données pour les absences
-    error_log("Error fetching student absences for user ID " . $student_id . ": " . $e->getMessage());
-    // $error_message_db = $lang['db_fetch_error'] ?? 'Impossible de récupérer les données des absences.';
+    error_log("Error fetching student absences for user ID " . $student_user_id . ": " . $e->getMessage());
+}
+
+// --- Fetch Timetable Data for display and PDF (if student has a class) ---
+$student_timetable_data = [];
+$time_slots = [
+    ['08:00', '10:00'],
+    ['10:00', '12:00'],
+    ['14:00', '16:00'],
+    ['16:00', '18:00']
+];
+$jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+
+if ($student_classe_id) {
+    try {
+        $stmt_edt = $pdo->prepare("
+            SELECT edt.jour_semaine, edt.heure_debut, edt.heure_fin, m.nom AS nom_matiere, CONCAT(u.nom, ' ', u.prenom) AS nom_professeur, edt.salle
+            FROM emploi_du_temps edt
+            LEFT JOIN matieres m ON edt.matiere_id = m.id
+            LEFT JOIN utilisateurs u ON edt.professeur_id = u.id AND u.role = 'professeur'
+            WHERE edt.classe_id = ?
+            ORDER BY FIELD(jour_semaine, 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'), heure_debut
+        ");
+        $stmt_edt->execute([$student_classe_id]);
+        $raw_edt_data = $stmt_edt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Initialize $student_timetable_data with empty slots for all combinations
+        foreach ($jours as $jour) {
+            foreach ($time_slots as $slot) {
+                $slot_key = $slot[0] . '-' . $slot[1];
+                $student_timetable_data[$jour][$slot_key] = [
+                    'matiere' => '',
+                    'professeur' => '',
+                    'salle' => ''
+                ];
+            }
+        }
+
+        // Populate $student_timetable_data with fetched values
+        foreach ($raw_edt_data as $row) {
+            $slot_key = substr($row['heure_debut'], 0, 5) . '-' . substr($row['heure_fin'], 0, 5);
+            if (isset($student_timetable_data[$row['jour_semaine']][$slot_key])) {
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['matiere'] = $row['nom_matiere'];
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['professeur'] = $row['nom_professeur'];
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['salle'] = $row['salle'];
+            }
+        }
+
+    } catch (PDOException $e) {
+        error_log("Error fetching student timetable data: " . $e->getMessage());
+    }
 }
 
 // --------------------------------------------------------------------------------------
@@ -150,6 +227,34 @@ try {
         /* Accessibilité : Mode Daltonien */
         body.daltonien-mode {
             filter: grayscale(100%);
+        }
+        /* Timetable table styling */
+        .timetable-table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-radius: 8px;
+            overflow: hidden; /* For rounded corners with border-collapse */
+        }
+        .timetable-table th, .timetable-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: center;
+            font-size: 13px;
+            vertical-align: middle;
+        }
+        .timetable-table th {
+            background-color: var(--secondary);
+            color: #fff;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .timetable-table tr:nth-child(even) {
+            background-color: #f8f8f8;
+        }
+        .timetable-table tr:hover {
+            background-color: #f0f0f0;
         }
     </style>
 </head>
@@ -249,10 +354,10 @@ try {
         <div class="col-lg-6 mb-4">
             <div class="content-section">
                 <h3 class="mb-3"><i class="bi bi-person-bounding-box me-2"></i> <?= htmlspecialchars($lang['facial_enrollment_title'] ?? 'Enregistrement Facial Initial') ?></h3>
-                <p class="text-muted"><?= htmlspecialchars($lang['facial_enrollment_desc'] ?? 'Si ce n\'est pas déjà fait, veuillez enregistrer vos photos faciales pour la reconnaissance automatique des présences.') ?> [cite: 16]</p>
+                <p class="text-muted"><?= htmlspecialchars($lang['facial_enrollment_desc'] ?? 'Si ce n\'est pas déjà fait, veuillez enregistrer vos photos faciales pour la reconnaissance automatique des présences.') ?></p>
                 <div class="text-center">
                     <img src="https://via.placeholder.com/300x200?text=Selfie+Dynamique" class="img-fluid rounded mb-3" alt="Selfie Dynamique Placeholder">
-                    <p class="small text-muted"><?= htmlspecialchars($lang['facial_enrollment_instruction'] ?? 'Suivez les instructions à l\'écran (tournez la tête, clignez des yeux) pour capturer vos images.') ?> [cite: 16]</p>
+                    <p class="small text-muted"><?= htmlspecialchars($lang['facial_enrollment_instruction'] ?? 'Suivez les instructions à l\'écran (tournez la tête, clignez des yeux) pour capturer vos images.') ?></p>
                     <button class="btn btn-primary"><i class="bi bi-camera me-2"></i> <?= htmlspecialchars($lang['start_enrollment'] ?? 'Démarrer l\'enregistrement') ?></button>
                 </div>
             </div>
@@ -308,10 +413,57 @@ try {
     <div class="content-section" id="schedule">
         <h3 class="mb-3"><i class="bi bi-calendar-week me-2"></i> <?= htmlspecialchars($lang['schedule'] ?? 'Mon Emploi du Temps') ?></h3>
         <p class="text-muted"><?= htmlspecialchars($lang['schedule_desc'] ?? 'Consultez votre emploi du temps hebdomadaire.') ?></p>
-        <div class="text-center">
-            <img src="https://via.placeholder.com/600x300?text=Emploi+du+Temps" class="img-fluid rounded mb-3" alt="Emploi du Temps Placeholder">
-            <a href="#" class="btn btn-outline-primary"><i class="bi bi-download me-2"></i> <?= htmlspecialchars($lang['download_schedule'] ?? 'Télécharger l\'emploi du temps') ?></a>
-        </div>
+        <?php if ($student_classe_id && !empty($student_timetable_data)): ?>
+            <div class="table-responsive" id="timetableToDownload">
+                <table class="timetable-table">
+                    <thead>
+                        <tr>
+                            <th><?= htmlspecialchars($lang['day_slot'] ?? 'Jour / Créneau') ?></th>
+                            <?php foreach ($time_slots as $slot_index => $slot): ?>
+                                <th>
+                                    <?= htmlspecialchars($lang['slot'] ?? 'Créneau') ?> <?= $slot_index + 1 ?><br>
+                                    <small>(<?= htmlspecialchars($slot[0] . '-' . $slot[1]) ?>)</small>
+                                </th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($jours as $jour): ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($jour) ?></strong></td>
+                                <?php foreach ($time_slots as $slot):
+                                    $slot_key = $slot[0] . '-' . $slot[1];
+                                    $data = $student_timetable_data[$jour][$slot_key];
+                                ?>
+                                    <td>
+                                        <?php if (!empty($data['matiere'])): ?>
+                                            <strong><?= htmlspecialchars($data['matiere']) ?></strong><br>
+                                            <small><?= htmlspecialchars($data['professeur']) ?></small><br>
+                                            <small class="text-muted"><?= htmlspecialchars($data['salle']) ?></small>
+                                        <?php else: ?>
+                                            -
+                                        <?php endif; ?>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="text-center mt-3">
+                <button type="button" class="btn btn-outline-primary" id="downloadPdfButton">
+                    <i class="bi bi-download me-2"></i> <?= htmlspecialchars($lang['download_schedule'] ?? 'Télécharger l\'emploi du temps') ?> (PDF)
+                </button>
+            </div>
+        <?php elseif ($student_classe_id && empty($student_timetable_data)): ?>
+            <div class="alert alert-info mt-4">
+                <?= htmlspecialchars($lang['no_schedule_for_your_class'] ?? 'Aucun emploi du temps n\'est défini pour votre classe pour le moment.') ?>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info mt-4">
+                <?= htmlspecialchars($lang['no_class_assigned'] ?? 'Votre classe n\'est pas encore attribuée, impossible d\'afficher l\'emploi du temps.') ?>
+            </div>
+        <?php endif; ?>
     </div>
 
     <div class="content-section" id="justifications">
@@ -347,7 +499,7 @@ try {
         </div>
         <div class="card-body">
             <p><strong><?= htmlspecialchars($lang['name'] ?? 'Nom Complet') ?>:</strong> <?= htmlspecialchars($student_name) ?></p>
-            <p><strong><?= htmlspecialchars($lang['email'] ?? 'Email') ?>:</strong> <?= htmlspecialchars($student_email) ?></p>
+            <p><strong><?= htmlspecialchars($lang['email'] ?? 'Email') ?>:</b> <?= htmlspecialchars($student_email) ?></p>
             <p><strong><?= htmlspecialchars($lang['id_number'] ?? 'Numéro Étudiant') ?>:</strong> <?= htmlspecialchars($student_numero_etudiant) ?></p>
             <p><strong><?= htmlspecialchars($lang['filiere'] ?? 'Filière') ?>:</strong> <?= htmlspecialchars($student_filiere) ?></p>
             <p><strong><?= htmlspecialchars($lang['cycle'] ?? 'Cycle') ?>:</strong> <?= htmlspecialchars($student_cycle) ?></p>
@@ -374,6 +526,8 @@ try {
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
     // JavaScript pour le Mode Daltonien
     document.getElementById('daltonienModeToggle').addEventListener('click', function() {
@@ -395,6 +549,67 @@ try {
             url.searchParams.set('lang', this.getAttribute('href').split('lang=')[1]);
             window.location.href = url.toString();
         });
+    });
+
+    // JavaScript for PDF download using html2canvas and jsPDF
+    document.getElementById('downloadPdfButton').addEventListener('click', function() {
+        const input = document.getElementById('timetableToDownload'); // Element to capture
+
+        if (!input) {
+            console.error('Element #timetableToDownload not found. Cannot capture.');
+            alert('Error: The timetable element to download was not found on the page.');
+            return;
+        }
+
+        // Add a small delay to ensure all content is rendered
+        setTimeout(() => {
+            if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
+                console.error('html2canvas or jspdf is not loaded correctly.');
+                alert('Error: PDF generation libraries are not ready. Please try again.');
+                return;
+            }
+
+            html2canvas(input, {
+                scale: 2, // Increase resolution for better quality
+                useCORS: true // Important if you have images or fonts from different origins
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf; // Correct way to access jsPDF
+                const pdf = new jsPDF({
+                    orientation: 'landscape', // Landscape for wide table
+                    unit: 'mm', // Use millimeters for standard dimensions
+                    format: 'a4'
+                });
+
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+
+                const imgWidth = canvas.width;
+                const imgHeight = canvas.height;
+
+                // Calculate aspect ratio to maintain proportions
+                const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                const finalImgWidth = imgWidth * ratio * 0.9; // Adjusted for a small margin
+                const finalImgHeight = imgHeight * ratio * 0.9; // Adjusted for a small margin
+
+                // Center the image on the page
+                const posX = (pdfWidth - finalImgWidth) / 2;
+                const posY = (pdfHeight - finalImgHeight) / 2;
+
+                pdf.addImage(imgData, 'PNG', posX, posY, finalImgWidth, finalImgHeight);
+
+                // Get the class name for the filename
+                const classNameForFilename = "<?= htmlspecialchars($current_class_name) ?>";
+                const fileName = `emploi_du_temps_${classNameForFilename || 'etudiant'}.pdf`;
+
+                pdf.save(fileName);
+                console.log('PDF saved: ' + fileName);
+
+            }).catch(error => {
+                console.error('Error generating PDF:', error);
+                alert('An error occurred while downloading the PDF. Please check the console for more details.');
+            });
+        }, 300); // 300ms delay
     });
 </script>
 </body>

@@ -1,78 +1,166 @@
 <?php
-session_start();
-// Vérifier si l'utilisateur est connecté et a bien le rôle 'etudiant'
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'etudiant') {
-    header("Location: login.php"); // Rediriger vers la page de connexion si non authentifié ou mauvais rôle
+session_start(); // DOIT ÊTRE LA PREMIÈRE INSTRUCTION PHP
+
+require_once '../includes/config.php'; // Connexion à la base de données
+
+// Définir la langue AVANT d'inclure le fichier de langue
+$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
+require_once "../lang/{$lang_code}.php"; // Fichier de langue
+
+// --- DÉBUT DU BLOC DE VÉRIFICATION D'AUTHENTIFICATION ET DE REDIRECTION ---
+// Vérifier si l'utilisateur est connecté et est un professeur
+if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'professeur') {
+    // Stocke l'URL de la page actuelle dans la session avant la redirection
+    $_SESSION['redirect_to'] = $_SERVER['REQUEST_URI'];
+    header("Location: ../authentification/login.php"); // Assurez-vous que le chemin est correct
     exit();
 }
+// --- FIN DU BLOC DE VÉRIFICATION D'AUTHENTIFICATION ET DE REDIRECTION ---
 
-// Inclure le fichier de configuration de la base de données
-require_once '../includes/config.php';
+$prof_user_id = $_SESSION['user_id'];
+// Récupérer le nom complet du professeur depuis la session
+$prof_first_name = $_SESSION['user_first_name'] ?? '';
+$prof_last_name = $_SESSION['user_last_name'] ?? '';
+$prof_full_name = trim($prof_first_name . ' ' . $prof_last_name); // Concaténer et nettoyer
 
-// Récupérer le code de langue de la session ou utiliser le français par défaut
-$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
-require_once "../lang/{$lang_code}.php";
+// Initialisation des messages
+$success_message = '';
+$error_message = '';
 
-// --------------------------------------------------------------------------------------
-// Données de l'étudiant récupérées depuis la session (définies lors de la connexion)
-// --------------------------------------------------------------------------------------
-$student_id = $_SESSION['user_id'];
-$student_name = $_SESSION['user_name'] ?? 'Utilisateur Inconnu';
-$student_email = $_SESSION['user_email'] ?? 'N/A';
+// --- Récupération des données pour le tableau de bord ---
 
-// Informations spécifiques à l'étudiant, si elles existent en session
-$student_numero_etudiant = $_SESSION['student_numero_etudiant'] ?? 'N/A';
-$student_filiere = $_SESSION['student_filiere'] ?? 'N/A';
-$student_cycle = $_SESSION['student_cycle'] ?? 'N/A';
-$student_photo_path = $_SESSION['student_photo_path'] ?? null; // Chemin de la photo pour l'inscription faciale initiale
-$student_numero_apogee = $_SESSION['student_numero_apogee'] ?? 'N/A';
-$student_code_massar = $_SESSION['student_code_massar'] ?? 'N/A';
-
-// La "classe" pour l'affichage, combinant filière et cycle
-$student_class = $student_filiere . ' - ' . $student_cycle;
-
-// Date et heure actuelles pour l'affichage
-$current_date = date("d/m/Y");
-$current_time = date("H:i");
-
-// --------------------------------------------------------------------------------------
-// Récupération des absences récentes de l'étudiant depuis la base de données
-// --------------------------------------------------------------------------------------
-$recent_absences = [];
+// 1. Nombre total d'absences gérées par ce professeur (simple comptage)
+// Jointures améliorées pour s'assurer que l'absence est liée à une matière et un créneau spécifique enseigné par ce professeur.
+$total_absences_managed = 0;
 try {
-    // D'abord, récupérer l'ID de l'étudiant dans la table 'etudiants' à partir de son 'user_id'
-    $stmt_get_student_entity_id = $pdo->prepare("SELECT id FROM etudiants WHERE user_id = ?");
-    $stmt_get_student_entity_id->execute([$student_id]);
-    $etudiant_entity_id = $stmt_get_student_entity_id->fetchColumn(); // Récupère seulement la valeur de la première colonne
+    $stmt_abs_count = $pdo->prepare("
+        SELECT COUNT(DISTINCT a.id)
+        FROM absences a
+        JOIN matieres m ON a.matiere_id = m.id
+        JOIN emploi_du_temps edt ON a.matiere_id = edt.matiere_id 
+            AND a.heure_debut_creneau = TIME_FORMAT(edt.heure_debut, '%H:%i') 
+            AND a.heure_fin_creneau = TIME_FORMAT(edt.heure_fin, '%H:%i')
+        WHERE edt.professeur_id = ?
+    ");
+    $stmt_abs_count->execute([$prof_user_id]);
+    $total_absences_managed = $stmt_abs_count->fetchColumn();
+} catch (PDOException $e) {
+    error_log("Dashboard - Total Absences Count Error: " . $e->getMessage());
+    $error_message = ($lang['db_error_abs_count'] ?? 'Erreur lors du comptage des absences.');
+}
 
-    if ($etudiant_entity_id) {
-        // Si l'ID de l'entité étudiant est trouvé, récupérer ses absences
-        $stmt_absences = $pdo->prepare("SELECT a.date, m.nom AS matiere_nom, a.justifiee
-                                        FROM absences a
-                                        JOIN matieres m ON a.matiere_id = m.id
-                                        WHERE a.etudiant_id = ?
-                                        ORDER BY a.date DESC
-                                        LIMIT 5"); // Limiter aux 5 dernières absences
-        $stmt_absences->execute([$etudiant_entity_id]);
-        $recent_absences = $stmt_absences->fetchAll(PDO::FETCH_ASSOC);
+// 2. Prochaines sessions de cours pour ce professeur
+$next_sessions = [];
+try {
+    // Obtenez le jour de la semaine actuel et futur
+    $today = date('N'); // 1 (for Monday) through 7 (for Sunday)
+    $jours_map_db = [
+        1 => 'Lundi', 2 => 'Mardi', 3 => 'Mercredi', 4 => 'Jeudi',
+        5 => 'Vendredi', 6 => 'Samedi', 7 => 'Dimanche'
+    ];
+    $current_day_name_fr = $jours_map_db[$today];
+
+    // Requête pour les cours d'aujourd'hui (déjà passés ou à venir)
+    $stmt_today_sessions = $pdo->prepare("
+        SELECT
+            edt.heure_debut,
+            edt.heure_fin,
+            m.nom AS matiere_nom,
+            c.nom_classe,
+            'Aujourd\'hui' AS session_date_display
+        FROM
+            emploi_du_temps edt
+        JOIN
+            matieres m ON edt.matiere_id = m.id
+        JOIN
+            classes c ON edt.classe_id = c.id
+        WHERE
+            edt.professeur_id = ?
+            AND edt.jour_semaine = ?
+        ORDER BY
+            edt.heure_debut ASC
+    ");
+    $stmt_today_sessions->execute([$prof_user_id, $current_day_name_fr]);
+    $today_sessions = $stmt_today_sessions->fetchAll(PDO::FETCH_ASSOC);
+
+    // Filtrer pour n'afficher que les sessions à venir ou en cours
+    $current_time = date('H:i:s');
+    foreach ($today_sessions as $session) {
+        if ($session['heure_fin'] > $current_time) { // Comparer l'heure de fin pour inclure les cours en cours
+            $next_sessions[] = $session;
+        }
+    }
+
+    // Si pas de sessions à venir aujourd'hui, chercher la prochaine sur les jours suivants
+    if (empty($next_sessions)) {
+        // Rechercher dans les 7 prochains jours
+        for ($i = 1; $i <= 7; $i++) {
+            $future_date_raw = date('Y-m-d', strtotime("+$i day"));
+            $future_day_num = date('N', strtotime($future_date_raw));
+            $future_day_name_fr = $jours_map_db[$future_day_num];
+            $future_date_display = date('d/m/Y', strtotime("+$i day")); // Format pour l'affichage
+
+            $stmt_future_sessions = $pdo->prepare("
+                SELECT
+                    edt.heure_debut,
+                    edt.heure_fin,
+                    m.nom AS matiere_nom,
+                    c.nom_classe,
+                    ? AS session_date_display
+                FROM
+                    emploi_du_temps edt
+                JOIN
+                    matieres m ON edt.matiere_id = m.id
+                JOIN
+                    classes c ON edt.classe_id = c.id
+                WHERE
+                    edt.professeur_id = ?
+                    AND edt.jour_semaine = ?
+                ORDER BY
+                    edt.heure_debut ASC
+            ");
+            $stmt_future_sessions->execute([$future_date_display, $prof_user_id, $future_day_name_fr]);
+            $found_sessions = $stmt_future_sessions->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($found_sessions)) {
+                $next_sessions = array_slice($found_sessions, 0, 3); // Limiter aux 3 premières sessions trouvées
+                break; // Arrêter après avoir trouvé des sessions
+            }
+        }
     }
 
 } catch (PDOException $e) {
-    // Gérer l'erreur de base de données pour les absences
-    error_log("Error fetching student absences for user ID " . $student_id . ": " . $e->getMessage());
-    // $error_message_db = $lang['db_fetch_error'] ?? 'Impossible de récupérer les données des absences.';
+    error_log("Dashboard - Next Sessions Error: " . $e->getMessage());
+    $error_message = $lang['db_error_schedule'] ?? 'Erreur lors du chargement de l\'emploi du temps.';
 }
 
-// --------------------------------------------------------------------------------------
-// Contenu HTML du Tableau de Bord Étudiant
-// --------------------------------------------------------------------------------------
+// 3. Classes attribuées au professeur
+$assigned_classes = [];
+try {
+    $stmt_assigned_classes = $pdo->prepare("
+        SELECT DISTINCT c.id, c.nom_classe
+        FROM classes c
+        JOIN emploi_du_temps edt ON c.id = edt.classe_id
+        WHERE edt.professeur_id = ?
+        ORDER BY c.nom_classe
+    ");
+    $stmt_assigned_classes->execute([$prof_user_id]);
+    $assigned_classes = $stmt_assigned_classes->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    error_log("Dashboard - Assigned Classes Error: " . $e->getMessage());
+    $error_message = $lang['db_error_classes'] ?? 'Erreur lors du chargement de vos classes.';
+}
+
+// Date et heure actuelles pour l'affichage
+$current_date_display = date("d/m/Y");
+$current_time_display = date("H:i");
+
 ?>
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars($lang_code) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ENSAO – <?= htmlspecialchars($lang['student_dashboard_title'] ?? 'Tableau de Bord Étudiant') ?></title>
+    <title>ENSAO – <?= htmlspecialchars($lang['prof_dashboard_title'] ?? 'Tableau de Bord Professeur') ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
@@ -126,6 +214,9 @@ try {
             border-top-left-radius: 10px;
             border-top-right-radius: 10px;
             font-weight: bold;
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
         }
         /* Style pour les sections de contenu */
         .content-section {
@@ -137,7 +228,7 @@ try {
         }
         .text-success { color: #28a745 !important; }
         .text-danger { color: #dc3545 !important; }
-        .text-info { color: #17a2b8 !important; } /* Pour les justificatifs */
+        .text-info { color: #17a2b8 !important; }
 
         footer {
             background: var(--primary);
@@ -176,11 +267,11 @@ try {
 
         <div class="collapse navbar-collapse" id="mainNav">
             <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                <li class="nav-item"><a class="nav-link active" href="#"><?= htmlspecialchars($lang['dashboard'] ?? 'Tableau de Bord') ?></a></li>
-                <li class="nav-item"><a class="nav-link" href="#records"><?= htmlspecialchars($lang['absence_records'] ?? 'Historique des Absences') ?></a></li>
-                <li class="nav-item"><a class="nav-link" href="#schedule"><?= htmlspecialchars($lang['schedule'] ?? 'Emploi du Temps') ?></a></li>
-                <li class="nav-item"><a class="nav-link" href="#justifications"><?= htmlspecialchars($lang['justifications'] ?? 'Justificatifs') ?></a></li>
-                <li class="nav-item"><a class="nav-link" href="#profile"><?= htmlspecialchars($lang['profile'] ?? 'Mon Profil') ?></a></li>
+                <li class="nav-item"><a class="nav-link active" href="dashboard.php"><?= htmlspecialchars($lang['home'] ?? 'Accueil') ?></a></li>
+                <li class="nav-item"><a class="nav-link" href="gestion_absences.php"><?= htmlspecialchars($lang['manage_absences'] ?? 'Gérer les Absences') ?></a></li>
+                <li class="nav-item"><a class="nav-link" href="voir_absences.php"><?= htmlspecialchars($lang['view_absences'] ?? 'Visualiser les Absences') ?></a></li>
+                <li class="nav-item"><a class="nav-link" href="valider_justificatif.php"><?= htmlspecialchars($lang['validate_justification'] ?? 'Valider les Justificatifs') ?></a></li>
+                <li class="nav-item"><a class="nav-link" href="rapports.php"><?= htmlspecialchars($lang['reports'] ?? 'Rapports') ?></a></li>
             </ul>
 
             <div class="d-flex align-items-center gap-3">
@@ -202,7 +293,7 @@ try {
                 <button class="btn btn-outline-secondary" id="daltonienModeToggle">
                     <i class="bi bi-eye-slash"></i> <?= htmlspecialchars($lang['daltonian_mode'] ?? 'Mode Daltonien') ?>
                 </button>
-                <a href="logout.php" class="btn btn-danger"><i class="bi bi-box-arrow-right"></i> <?= htmlspecialchars($lang['logout'] ?? 'Déconnexion') ?></a>
+                <a href="../authentification/logout.php" class="btn btn-danger"><i class="bi bi-box-arrow-right"></i> <?= htmlspecialchars($lang['logout'] ?? 'Déconnexion') ?></a>
             </div>
         </div>
     </div>
@@ -210,161 +301,106 @@ try {
 
 <section class="dashboard-header text-center">
     <div class="container">
-        <h1 class="display-4 mb-2"><?= htmlspecialchars($lang['welcome_student'] ?? 'Bienvenue') ?>, <?= htmlspecialchars($student_name) ?>!</h1>
-        <p class="lead"><?= htmlspecialchars($lang['current_class'] ?? 'Votre Classe') ?>: <?= htmlspecialchars($student_class) ?></p>
-        <p class="mb-0"><?= htmlspecialchars($lang['current_time'] ?? 'Date et Heure Actuelles') ?>: <?= $current_date ?> <?= $current_time ?></p>
+        <h1 class="display-4 mb-2"><?= htmlspecialchars($lang['welcome_prof'] ?? 'Bienvenue') ?>, <?= htmlspecialchars($prof_full_name) ?>!</h1>
+        <p class="lead"><?= htmlspecialchars($lang['prof_dashboard_intro'] ?? 'Votre tableau de bord enseignant') ?></p>
+        <p class="mb-0"><?= htmlspecialchars($lang['current_time'] ?? 'Date et Heure Actuelles') ?>: <?= $current_date_display ?> <?= $current_time_display ?></p>
     </div>
 </section>
 
 <main class="container">
+    <?php if ($error_message): ?>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <?= htmlspecialchars($error_message) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    <?php endif; ?>
+
     <div class="row">
         <div class="col-lg-6 mb-4">
             <div class="card">
                 <div class="card-header">
-                    <i class="bi bi-graph-up me-2"></i> <?= htmlspecialchars($lang['quick_overview'] ?? 'Vue d\'ensemble rapide') ?>
+                    <i class="bi bi-bar-chart-line me-2"></i> <?= htmlspecialchars($lang['quick_stats'] ?? 'Statistiques Rapides') ?>
                 </div>
                 <div class="card-body">
-                    <p><strong><?= htmlspecialchars($lang['total_absences'] ?? 'Total Absences') ?>:</strong> <span class="badge bg-warning text-dark">5</span></p>
-                    <p><strong><?= htmlspecialchars($lang['justified_absences'] ?? 'Absences Justifiées') ?>:</strong> <span class="badge bg-success">3</span></p>
-                    <p><strong><?= htmlspecialchars($lang['unjustified_absences'] ?? 'Absences Non Justifiées') ?>:</strong> <span class="badge bg-danger">2</span></p>
+                    <p><strong><?= htmlspecialchars($lang['absences_managed'] ?? 'Absences gérées (total)') ?>:</strong> <span class="badge bg-primary"><?= $total_absences_managed ?></span></p>
+                    <p><strong><?= htmlspecialchars($lang['classes_assigned'] ?? 'Classes attribuées') ?>:</strong> <span class="badge bg-info"><?= count($assigned_classes) ?></span></p>
+                    <p><strong><?= htmlspecialchars($lang['justifications_pending'] ?? 'Justificatifs en attente') ?>:</strong> <span class="badge bg-warning text-dark">0</span> <small>(<?= htmlspecialchars($lang['feature_to_implement'] ?? 'Fonctionnalité à implémenter') ?>)</small></p>
                     <hr>
-                    <p class="small text-muted"><?= htmlspecialchars($lang['data_updated'] ?? 'Dernière mise à jour') ?>: <?= $current_date ?></p>
-                </div>
-            </div>
-
-            <div class="card mt-4">
-                <div class="card-header">
-                    <i class="bi bi-bell me-2"></i> <?= htmlspecialchars($lang['notifications'] ?? 'Notifications') ?>
-                </div>
-                <div class="card-body">
-                    <ul class="list-group list-group-flush">
-                        <li class="list-group-item d-flex align-items-center"><i class="bi bi-check-circle-fill text-success me-2"></i> <?= htmlspecialchars($lang['notification_success'] ?? 'Votre présence pour "Algorithmique" a été enregistrée.') ?></li>
-                        <li class="list-group-item d-flex align-items-center"><i class="bi bi-info-circle-fill text-info me-2"></i> <?= htmlspecialchars($lang['notification_reminder'] ?? 'Rappel: Cours de Réseaux à 14h.') ?></li>
-                        <li class="list-group-item d-flex align-items-center"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i> <?= htmlspecialchars($lang['notification_unjustified'] ?? 'Absence non justifiée pour le cours de "Base de Données".') ?></li>
-                    </ul>
+                    <p class="small text-muted"><?= htmlspecialchars($lang['data_updated'] ?? 'Dernière mise à jour') ?>: <?= $current_date_display ?></p>
                 </div>
             </div>
         </div>
 
         <div class="col-lg-6 mb-4">
-            <div class="content-section">
-                <h3 class="mb-3"><i class="bi bi-person-bounding-box me-2"></i> <?= htmlspecialchars($lang['facial_enrollment_title'] ?? 'Enregistrement Facial Initial') ?></h3>
-                <p class="text-muted"><?= htmlspecialchars($lang['facial_enrollment_desc'] ?? 'Si ce n\'est pas déjà fait, veuillez enregistrer vos photos faciales pour la reconnaissance automatique des présences.') ?></p>
-                <div class="text-center">
-                    <img src="https://via.placeholder.com/300x200?text=Selfie+Dynamique" class="img-fluid rounded mb-3" alt="Selfie Dynamique Placeholder">
-                    <p class="small text-muted"><?= htmlspecialchars($lang['facial_enrollment_instruction'] ?? 'Suivez les instructions à l\'écran (tournez la tête, clignez des yeux) pour capturer vos images.') ?></p>
-                    <button class="btn btn-primary"><i class="bi bi-camera me-2"></i> <?= htmlspecialchars($lang['start_enrollment'] ?? 'Démarrer l\'enregistrement') ?></button>
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-hourglass-split me-2"></i> <?= htmlspecialchars($lang['upcoming_sessions'] ?? 'Prochaines Sessions') ?>
+                </div>
+                <div class="card-body">
+                    <?php if (!empty($next_sessions)): ?>
+                        <ul class="list-group list-group-flush">
+                            <?php foreach ($next_sessions as $session): ?>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong><?= htmlspecialchars($session['matiere_nom']) ?></strong> (<?= htmlspecialchars($session['nom_classe']) ?>)
+                                        <br><small class="text-muted">
+                                            <?= htmlspecialchars($session['session_date_display'] ?? $current_date_display) ?>
+                                            de <?= htmlspecialchars(substr($session['heure_debut'], 0, 5)) ?> à <?= htmlspecialchars(substr($session['heure_fin'], 0, 5)) ?>
+                                        </small>
+                                    </div>
+                                    <span class="badge bg-success">
+                                        <?= htmlspecialchars($lang['course'] ?? 'Cours') ?>
+                                    </span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php else: ?>
+                        <p class="text-muted"><?= htmlspecialchars($lang['no_upcoming_sessions'] ?? 'Aucune session de cours à venir dans votre emploi du temps pour les prochains jours.') ?></p>
+                    <?php endif; ?>
+                    <div class="text-center mt-3">
+                        <a href="view_schedule.php" class="btn btn-outline-primary"><i class="bi bi-calendar-week me-2"></i> <?= htmlspecialchars($lang['view_full_schedule'] ?? 'Voir l\'emploi du temps complet') ?></a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card mb-4" id="records">
-        <div class="card-header">
-            <i class="bi bi-calendar-check me-2"></i> <?= htmlspecialchars($lang['absence_history'] ?? 'Historique des Absences') ?>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead>
-                        <tr>
-                            <th><?= htmlspecialchars($lang['date'] ?? 'Date') ?></th>
-                            <th><?= htmlspecialchars($lang['course'] ?? 'Cours') ?></th>
-                            <th><?= htmlspecialchars($lang['status'] ?? 'Statut') ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (!empty($recent_absences)): ?>
-                            <?php foreach ($recent_absences as $absence): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($absence['date']) ?></td>
-                                    <td><?= htmlspecialchars($absence['matiere_nom']) ?></td>
-                                    <td>
-                                        <?php
-                                            // 'justifiee' est un tinyint(1) dans votre DB
-                                            if ($absence['justifiee'] == 1) {
-                                                echo '<span class="badge bg-info">' . htmlspecialchars($lang['justified'] ?? 'Justifiée') . '</span>';
-                                            } else {
-                                                echo '<span class="badge bg-danger">' . htmlspecialchars($lang['unjustified'] ?? 'Non Justifiée') . '</span>';
-                                            }
-                                        ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="3" class="text-center"><?= htmlspecialchars($lang['no_absence_records'] ?? 'Aucun historique d\'absences disponible.') ?></td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+    <div class="content-section" id="assigned_classes">
+        <h3 class="mb-3"><i class="bi bi-journals me-2"></i> <?= htmlspecialchars($lang['your_assigned_classes'] ?? 'Vos Classes Attribuées') ?></h3>
+        <?php if (!empty($assigned_classes)): ?>
+            <div class="list-group">
+                <?php foreach ($assigned_classes as $class): ?>
+                    <a href="gestion_absences.php?class_id=<?= htmlspecialchars($class['id']) ?>" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <?= htmlspecialchars($class['nom_classe']) ?>
+                        <i class="bi bi-arrow-right-circle"></i>
+                    </a>
+                <?php endforeach; ?>
             </div>
-            <div class="text-center mt-3">
-                <a href="#" class="btn btn-outline-primary"><?= htmlspecialchars($lang['view_all_records'] ?? 'Voir tout l\'historique') ?></a>
+        <?php else: ?>
+            <p class="text-muted"><?= htmlspecialchars($lang['no_classes_assigned'] ?? 'Vous n\'avez pas encore de classes attribuées dans l\'emploi du temps.') ?></p>
+        <?php endif; ?>
+    </div>
+
+    <div class="content-section" id="quick_actions">
+        <h3 class="mb-3"><i class="bi bi-lightning me-2"></i> <?= htmlspecialchars($lang['quick_actions'] ?? 'Actions Rapides') ?></h3>
+        <div class="row row-cols-1 row-cols-md-3 g-3">
+            <div class="col">
+                <a href="gestion_absences.php" class="btn btn-primary w-100 py-3">
+                    <i class="bi bi-pencil-square me-2"></i> <?= htmlspecialchars($lang['manage_absences_short'] ?? 'Gérer les Absences') ?>
+                </a>
+            </div>
+            <div class="col">
+                <a href="valider_justificatif.php" class="btn btn-primary w-100 py-3">
+                    <i class="bi bi-file-earmark-check me-2"></i> <?= htmlspecialchars($lang['validate_justifications_short'] ?? 'Valider Justificatifs') ?>
+                </a>
+            </div>
+            <div class="col">
+                <a href="voir_absences.php" class="btn btn-primary w-100 py-3">
+                    <i class="bi bi-search me-2"></i> <?= htmlspecialchars($lang['view_absences_short'] ?? 'Consulter Absences') ?>
+                </a>
             </div>
         </div>
     </div>
-
-    <div class="content-section" id="schedule">
-        <h3 class="mb-3"><i class="bi bi-calendar-week me-2"></i> <?= htmlspecialchars($lang['schedule'] ?? 'Mon Emploi du Temps') ?></h3>
-        <p class="text-muted"><?= htmlspecialchars($lang['schedule_desc'] ?? 'Consultez votre emploi du temps hebdomadaire.') ?></p>
-        <div class="text-center">
-            <img src="https://via.placeholder.com/600x300?text=Emploi+du+Temps" class="img-fluid rounded mb-3" alt="Emploi du Temps Placeholder">
-            <a href="#" class="btn btn-outline-primary"><i class="bi bi-download me-2"></i> <?= htmlspecialchars($lang['download_schedule'] ?? 'Télécharger l\'emploi du temps') ?></a>
-        </div>
-    </div>
-
-    <div class="content-section" id="justifications">
-        <h3 class="mb-3"><i class="bi bi-file-earmark-arrow-up me-2"></i> <?= htmlspecialchars($lang['justifications'] ?? 'Justificatifs d\'Absence') ?></h3>
-        <p class="text-muted"><?= htmlspecialchars($lang['justifications_desc'] ?? 'Téléchargez un justificatif pour vos absences non justifiées.') ?></p>
-        <form action="#" method="POST" enctype="multipart/form-data">
-            <div class="mb-3">
-                <label for="absence_date_justify" class="form-label"><?= htmlspecialchars($lang['absence_date'] ?? 'Date de l\'absence') ?>:</label>
-                <input type="date" class="form-control" id="absence_date_justify" name="absence_date_justify" required>
-            </div>
-            <div class="mb-3">
-                <label for="justification_file" class="form-label"><?= htmlspecialchars($lang['upload_justification'] ?? 'Télécharger le justificatif') ?> (PDF, JPG, PNG) :</label>
-                <input type="file" class="form-control" id="justification_file" name="justification_file" accept=".pdf,.jpg,.jpeg,.png" required>
-            </div>
-            <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-2"></i> <?= htmlspecialchars($lang['submit_justification'] ?? 'Soumettre le justificatif') ?></button>
-        </form>
-        <h4 class="mt-4"><?= htmlspecialchars($lang['submitted_justifications'] ?? 'Justificatifs Soumis') ?></h4>
-        <ul class="list-group">
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                Absence du 2025-05-18 - Certificat médical.pdf
-                <span class="badge bg-warning text-dark"><?= htmlspecialchars($lang['pending'] ?? 'En attente') ?></span>
-            </li>
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                Absence du 2025-05-10 - Raison familiale.pdf
-                <span class="badge bg-success"><?= htmlspecialchars($lang['approved'] ?? 'Approuvé') ?></span>
-            </li>
-        </ul>
-    </div>
-
-    <div class="card mb-4" id="profile">
-        <div class="card-header">
-            <i class="bi bi-person-circle me-2"></i> <?= htmlspecialchars($lang['my_profile'] ?? 'Mon Profil') ?>
-        </div>
-        <div class="card-body">
-            <p><strong><?= htmlspecialchars($lang['name'] ?? 'Nom Complet') ?>:</strong> <?= htmlspecialchars($student_name) ?></p>
-            <p><strong><?= htmlspecialchars($lang['email'] ?? 'Email') ?>:</strong> <?= htmlspecialchars($student_email) ?></p>
-            <p><strong><?= htmlspecialchars($lang['id_number'] ?? 'Numéro Étudiant') ?>:</strong> <?= htmlspecialchars($student_numero_etudiant) ?></p>
-            <p><strong><?= htmlspecialchars($lang['filiere'] ?? 'Filière') ?>:</strong> <?= htmlspecialchars($student_filiere) ?></p>
-            <p><strong><?= htmlspecialchars($lang['cycle'] ?? 'Cycle') ?>:</strong> <?= htmlspecialchars($student_cycle) ?></p>
-            <p><strong><?= htmlspecialchars($lang['apogee_code'] ?? 'Code Apogée') ?>:</strong> <?= htmlspecialchars($student_numero_apogee) ?></p>
-            <p><strong><?= htmlspecialchars($lang['massar_code'] ?? 'Code Massar') ?>:</strong> <?= htmlspecialchars($student_code_massar) ?></p>
-
-            <?php if ($student_photo_path && file_exists('../' . $student_photo_path)): ?>
-                <p>
-                    <strong><?= htmlspecialchars($lang['profile_picture'] ?? 'Photo de profil') ?>:</strong><br>
-                    <img src="<?= htmlspecialchars('../' . $student_photo_path) ?>" alt="Photo de profil" class="img-fluid rounded" style="max-width: 150px; height: auto;">
-                </p>
-            <?php endif; ?>
-            <a href="change_password.php" class="btn btn-outline-primary"><?= htmlspecialchars($lang['change_password_link'] ?? 'Changer mon mot de passe') ?></a>
-            <button class="btn btn-outline-secondary mt-2"><?= htmlspecialchars($lang['edit_profile'] ?? 'Modifier le Profil') ?></button>
-        </div>
-    </div>
-
 </main>
 
 <footer>
