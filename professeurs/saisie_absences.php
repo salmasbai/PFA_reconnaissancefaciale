@@ -1,6 +1,6 @@
 <?php
-require_once __DIR__ . '/../../includes/config.php';
-require_once __DIR__ . '/../../includes/auth_middleware.php';
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/auth_middleware.php';
 
 $matiereId = filter_input(INPUT_GET, 'matiere_id', FILTER_VALIDATE_INT);
 $stmt = $pdo->prepare("SELECT * FROM matieres WHERE id = ? AND professeur_id = ?");

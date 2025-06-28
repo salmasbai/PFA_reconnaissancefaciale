@@ -4,7 +4,11 @@ session_start();
 $lang = "fr"; // tu pourras plus tard le détecter dynamiquement
 ?>
 
+<<<<<<< HEAD
 <?php include('includes/header.php'); ?> 
+=======
+<?php include('includes/header.php'); ?> <!-- Tu dois créer ce fichier avec <head> etc. -->
+>>>>>>> 8c3fce9739c3be0cb038afa34df9f5bfee9d3d95
 
 <body>
 
