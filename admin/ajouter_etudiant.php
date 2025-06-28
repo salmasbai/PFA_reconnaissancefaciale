@@ -1,20 +1,24 @@
 <?php
+session_start();
 // Inclure votre fichier de configuration de base de données.
 // Ce fichier devrait gérer la connexion PDO et les constantes de base de données.
 require_once '../includes/config.php';
 
-/* session_start();
+// Define $lang_code BEFORE requiring the language file
+$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
+require_once "../lang/{$lang_code}.php"; // Fichier de langue
+
 // Assurez-vous que seul l'admin accède à cette page
-if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
+if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
     header('Location: ../authentification/login.php');
     exit;
-}*/
+}
 
 // L'objet de connexion PDO est maintenant disponible via $pdo depuis config.php
 
 // Initialisation des messages de statut
 $message = '';
-$message_type = ''; // 'success' ou 'error'
+$message_type = ''; // 'success' ou 'danger' (Bootstrap equivalent for 'error')
 
 // --- Traitement de l'ajout de l'étudiant ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -36,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // Validation des données
     if (empty($nom) || empty($prenom) || empty($numero_etudiant) || empty($code_massar) || empty($numero_apogee) || empty($cycle) || empty($classe_id)) {
         $message = "Tous les champs obligatoires (sauf photo) doivent être remplis.";
-        $message_type = 'error';
+        $message_type = 'danger';
     } else {
         // Début de la transaction pour assurer l'atomicité
         $pdo->beginTransaction();
@@ -55,18 +59,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // 2. Gestion de l'upload de photo
             $photo_path = '';
             if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-                $target_dir = "uploads/etudiants/" . date('Y') . "/" . date('m') . "/";
+                // Ensure the path is relative to the web root for access
+                $target_dir_base = 'uploads/etudiants/' . date('Y') . '/' . date('m') . '/';
+                $target_dir = '../' . $target_dir_base; // Path for server-side operations
+
                 if (!is_dir($target_dir)) {
                     mkdir($target_dir, 0777, true);
                 }
                 $file_extension = pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION);
                 $unique_filename = uniqid('etud_') . '.' . $file_extension;
                 $target_file = $target_dir . $unique_filename;
+                $photo_path_db = '/' . $target_dir_base . $unique_filename; // Path to store in DB
 
                 if (!move_uploaded_file($_FILES['photo']['tmp_name'], $target_file)) {
                     throw new Exception("Erreur lors de l'upload de la photo. Code d'erreur: " . $_FILES['photo']['error']);
                 }
-                $photo_path = '/' . $target_file;
+                $photo_path = $photo_path_db;
             } else if (isset($_FILES['photo']) && $_FILES['photo']['error'] !== UPLOAD_ERR_NO_FILE) {
                 throw new Exception("Erreur lors de l'upload de la photo : " . $_FILES['photo']['error']);
             }
@@ -109,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // En cas d'erreur, annuler la transaction
             $pdo->rollBack();
             $message = "Échec de l'opération : " . $e->getMessage();
-            $message_type = 'error';
+            $message_type = 'danger';
         }
     }
 }
@@ -135,302 +143,300 @@ if ($stmt_classes) {
 ?>
 
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= htmlspecialchars($lang_code) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ajouter un Étudiant - ENSAO</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+    <title>ENSAO – <?= htmlspecialchars($lang['add_student_title'] ?? 'Ajouter un Étudiant') ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
         :root {
-            --primary-color: #2c3e50;
-            --secondary-color: #3498db;
-            --accent-color: #e74c3c;
-            --light-color: #ecf0f1;
-            --dark-color: #2c3e50;
+            --primary: #8c5a2b;
+            --secondary: #cfa37b;
+            --accent: #b3874c;
+            --dark-blue: #2c3e50;
+            --light-bg: #f9f4f1;
         }
-
         body {
             font-family: 'Roboto', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f5f7fa;
-            color: var(--dark-color);
+            background-color: var(--light-bg);
+            color: #333;
+            padding-top: 70px; /* For fixed navbar */
         }
-
-        header {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: white;
-            padding: 1rem 0;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        .navbar-brand img {
+            height: 48px;
+            margin-right: .5rem;
         }
-
-        .header-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 2rem;
-        }
-
-        .main-content {
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 2rem;
-        }
-
-        h1 {
-            font-family: 'Playfair Display', serif;
-            font-size: 2.2rem;
-            color: var(--primary-color);
-            margin-bottom: 1.5rem;
-            text-align: center;
-            position: relative;
-        }
-
-        h1::after {
-            content: '';
-            position: absolute;
-            bottom: -10px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80px;
-            height: 3px;
-            background: var(--accent-color);
-        }
-
-        .form-container {
-            background: white;
-            border-radius: 8px;
-            padding: 2rem;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
+        .navbar-nav .nav-link {
+            color: #000;
             font-weight: 500;
-            color: var(--primary-color);
         }
-
-        input[type="text"],
-        input[type="email"],
-        input[type="password"],
-        select {
-            width: 100%;
-            padding: 0.8rem;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 1rem;
-            transition: border 0.3s ease;
+        .navbar-nav .nav-link.active {
+            color: var(--primary) !important;
         }
-
-        input[type="file"] {
-            width: 100%;
-            padding: 0.5rem 0;
+        .btn-primary {
+            background-color: var(--primary);
+            border-color: var(--primary);
         }
-
-        input:focus,
-        select:focus {
-            border-color: var(--secondary-color);
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        .btn-primary:hover {
+            background-color: var(--accent);
+            border-color: var(--accent);
         }
-
-        button[type="submit"] {
-            background-color: var(--secondary-color);
-            color: white;
-            border: none;
-            padding: 0.8rem 1.5rem;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: background-color 0.3s ease;
-            width: 100%;
-            margin-top: 1rem;
+        .dashboard-header {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: #fff;
+            padding: 3rem 0;
+            margin-bottom: 2rem;
+            border-bottom-left-radius: 15px;
+            border-bottom-right-radius: 15px;
         }
-
-        button[type="submit"]:hover {
-            background-color: var(--primary-color);
+        .main-content {
+            max-width: 900px; /* Adjusted for wider forms */
+            margin: 2rem auto;
+            padding: 0 15px; /* Use Bootstrap's default padding for containers */
         }
-
-        .success-message {
-            background-color: #d4edda;
-            color: #155724;
-            padding: 1rem;
-            border-radius: 5px;
+        .content-section {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
             margin-bottom: 1.5rem;
-            text-align: center;
         }
-
-        .error-message {
-            background-color: #f8d7da;
-            color: #721c24;
-            padding: 1rem;
-            border-radius: 5px;
+        h1, h2, h3 {
+            color: var(--dark-blue);
+            font-weight: 700;
             margin-bottom: 1.5rem;
-            text-align: center;
         }
-
-        .back-link {
-            display: inline-block;
-            margin-top: 1.5rem;
-            color: var(--secondary-color);
-            text-decoration: none;
+        .form-label {
+            font-weight: 500;
+            color: var(--primary);
         }
-
-        .back-link:hover {
-            text-decoration: underline;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-        }
-
-        @media (min-width: 768px) {
-            .form-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .form-grid .full-width {
-                grid-column: span 2;
-            }
-        }
-
         input[readonly] {
             background-color: #e9ecef;
             cursor: not-allowed;
         }
+        footer {
+            background: var(--primary);
+            color: #fff;
+            padding: 1.5rem 0;
+            text-align: center;
+            margin-top: 3rem;
+        }
+
+        /* Accessibility: Daltonian Mode */
+        body.daltonien-mode {
+            filter: grayscale(100%);
+        }
     </style>
 </head>
 <body>
-    <?php include '../includes/header.php'; ?>
 
-    <div class="main-content">
-        <h1>Ajouter un Nouvel Étudiant</h1>
+<nav class="navbar navbar-expand-lg bg-white shadow-sm fixed-top">
+    <div class="container">
+        <a class="navbar-brand d-flex align-items-center" href="../admin/admin_dashboard.php">
+            <img src="../assets/images/logo_ensao.png" alt="Logo ENSAO" />
+            <span class="fw-bold">ENSAO</span>
+        </a>
 
-        <?php if ($message): ?>
-            <div class="message <?php echo $message_type; ?>">
-                <?php echo htmlspecialchars($message); ?>
-            </div>
-        <?php endif; ?>
+        <button
+            class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#mainNav"
+            aria-controls="mainNav"
+            aria-expanded="false"
+            aria-label="Basculer la navigation"
+        >
+            <span class="navbar-toggler-icon"></span>
+        </button>
 
-        <div class="form-container">
-            <form action="ajouter_etudiant.php" method="POST" enctype="multipart/form-data">
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="nom">Nom:</label>
-                        <input type="text" name="nom" id="nom" required value="<?php echo htmlspecialchars($_POST['nom'] ?? ''); ?>">
-                    </div>
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item"><a class="nav-link" href="../admin/dashboard.php"><?= htmlspecialchars($lang['dashboard'] ?? 'Tableau de Bord') ?></a></li>
+                <li class="nav-item"><a class="nav-link active" href="ajouter_etudiant.php"><?= htmlspecialchars($lang['add_student'] ?? 'Ajouter Étudiant') ?></a></li>
+                </ul>
 
-                    <div class="form-group">
-                        <label for="prenom">Prénom:</label>
-                        <input type="text" name="prenom" id="prenom" required value="<?php echo htmlspecialchars($_POST['prenom'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="numero_etudiant">Numéro Étudiant:</label>
-                        <input type="text" name="numero_etudiant" id="numero_etudiant" required pattern="[A-Za-z0-9]{6,12}" value="<?php echo htmlspecialchars($_POST['numero_etudiant'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="code_massar">Code Massar:</label>
-                        <input type="text" name="code_massar" id="code_massar" required pattern="[A-Za-z0-9]{8,20}" value="<?php echo htmlspecialchars($_POST['code_massar'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="numero_apogee">Numéro Apogée:</label>
-                        <input type="text" name="numero_apogee" id="numero_apogee" required value="<?php echo htmlspecialchars($_POST['numero_apogee'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="cycle">Cycle:</label>
-                        <select name="cycle" id="cycle" required>
-                            <option value="">-- Sélectionner un cycle --</option>
-                            <option value="CP" <?php echo (isset($_POST['cycle']) && $_POST['cycle'] == 'CP') ? 'selected' : ''; ?>>Cycle Préparatoire</option>
-                            <option value="ING" <?php echo (isset($_POST['cycle']) && $_POST['cycle'] == 'ING') ? 'selected' : ''; ?>>Cycle d'Ingénieur</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="classe_id">Classe:</label>
-                        <select name="classe_id" id="classe_id" required>
-                            <option value="">-- Sélectionner une classe --</option>
-                            <?php foreach ($classes as $class): ?>
-                                <option
-                                    value="<?php echo htmlspecialchars($class['id']); ?>"
-                                    data-niveau="<?php echo htmlspecialchars($class['niveau']); ?>"
-                                    data-filiere_nom="<?php echo htmlspecialchars($class['filiere_nom']); ?>"
-                                    data-filiere_id="<?php echo htmlspecialchars($class['filiere_id']); ?>"
-                                    <?php echo (isset($_POST['classe_id']) && $_POST['classe_id'] == $class['id']) ? 'selected' : ''; ?>
-                                >
-                                    <?php echo htmlspecialchars($class['nom_classe'] . ' (' . $class['annee_universitaire'] . ' - ' . $class['filiere_nom'] . ')'); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="filiere_display">Filière (Automatique):</label>
-                        <input type="text" name="filiere_display" id="filiere_display" class="bg-gray-100" readonly value="">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="niveau_display">Niveau (Automatique):</label>
-                        <input type="text" name="niveau_display" id="niveau_display" class="bg-gray-100" readonly value="">
-                    </div>
-
-                    <div class="form-group full-width">
-                        <label for="photo">Photo:</label>
-                        <input type="file" name="photo" id="photo" accept="image/*">
-                        <small>Formats acceptés: JPG, PNG (facultatif)</small>
-                    </div>
-
-                    <div class="form-group full-width">
-                        <button type="submit">Enregistrer l'étudiant</button>
-                    </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="dropdown">
+                    <a
+                        class="dropdown-toggle text-dark text-decoration-none"
+                        href="#"
+                        id="langDropdown"
+                        role="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                    ><?= strtoupper($lang_code) ?></a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="langDropdown">
+                        <li><a class="dropdown-item" href="?lang=fr">FR – Français</a></li>
+                        <li><a class="dropdown-item" href="?lang=en">EN – English</a></li>
+                        <li><a class="dropdown-item" href="?lang=ar">AR – العربية</a></li>
+                    </ul>
                 </div>
-            </form>
-
-            <a href="liste_etudiants.php" class="back-link">← Retour à la liste</a>
+                <button class="btn btn-outline-secondary" id="daltonienModeToggle">
+                    <i class="bi bi-eye-slash"></i> <?= htmlspecialchars($lang['daltonian_mode'] ?? 'Mode Daltonien') ?>
+                </button>
+                <a href="../authentification/logout.php" class="btn btn-danger"><i class="bi bi-box-arrow-right"></i> <?= htmlspecialchars($lang['logout'] ?? 'Déconnexion') ?></a>
+            </div>
         </div>
     </div>
+</nav>
 
-    <?php // include '../includes/footer.php'; ?>
+<section class="dashboard-header text-center">
+    <div class="container">
+        <h1 class="display-4 mb-2"><?= htmlspecialchars($lang['add_new_student'] ?? 'Ajouter un Nouvel Étudiant') ?></h1>
+        <p class="lead"><?= htmlspecialchars($lang['add_student_desc'] ?? 'Remplissez le formulaire ci-dessous pour inscrire un nouvel étudiant.') ?></p>
+    </div>
+</section>
 
-    <script>
-        // Passer les données des classes du PHP au JavaScript
-        const classesData = <?php echo json_encode($classes_data_js); ?>;
+<main class="container main-content">
+    <?php if ($message): ?>
+        <div class="alert alert-<?php echo $message_type === 'success' ? 'success' : 'danger'; ?> alert-dismissible fade show" role="alert">
+            <?php echo htmlspecialchars($message); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    <?php endif; ?>
 
-        document.addEventListener('DOMContentLoaded', function() {
-            const classeSelect = document.getElementById('classe_id');
-            const filiereDisplayInput = document.getElementById('filiere_display');
-            const niveauDisplayInput = document.getElementById('niveau_display');
+    <div class="content-section">
+        <form action="ajouter_etudiant.php" method="POST" enctype="multipart/form-data">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="nom" class="form-label"><?= htmlspecialchars($lang['last_name'] ?? 'Nom') ?>:</label>
+                    <input type="text" name="nom" id="nom" class="form-control" required value="<?php echo htmlspecialchars($_POST['nom'] ?? ''); ?>">
+                </div>
 
-            function updateFiliereNiveau() {
-                const selectedClassId = classeSelect.value;
-                if (selectedClassId && classesData[selectedClassId]) {
-                    filiereDisplayInput.value = classesData[selectedClassId].filiere_nom;
-                    niveauDisplayInput.value = classesData[selectedClassId].niveau;
-                } else {
-                    filiereDisplayInput.value = '';
-                    niveauDisplayInput.value = '';
-                }
-            }
+                <div class="col-md-6 mb-3">
+                    <label for="prenom" class="form-label"><?= htmlspecialchars($lang['first_name'] ?? 'Prénom') ?>:</label>
+                    <input type="text" name="prenom" id="prenom" class="form-control" required value="<?php echo htmlspecialchars($_POST['prenom'] ?? ''); ?>">
+                </div>
 
-            // Mettre à jour au chargement de la page si une classe est déjà sélectionnée (après erreur de soumission)
-            updateFiliereNiveau();
+                <div class="col-md-6 mb-3">
+                    <label for="numero_etudiant" class="form-label"><?= htmlspecialchars($lang['student_id_number'] ?? 'Numéro Étudiant') ?>:</label>
+                    <input type="text" name="numero_etudiant" id="numero_etudiant" class="form-control" required pattern="[A-Za-z0-9]{6,12}" value="<?php echo htmlspecialchars($_POST['numero_etudiant'] ?? ''); ?>">
+                </div>
 
-            // Mettre à jour lorsque la sélection de la classe change
-            classeSelect.addEventListener('change', updateFiliereNiveau);
+                <div class="col-md-6 mb-3">
+                    <label for="code_massar" class="form-label"><?= htmlspecialchars($lang['massar_code'] ?? 'Code Massar') ?>:</label>
+                    <input type="text" name="code_massar" id="code_massar" class="form-control" required pattern="[A-Za-z0-9]{8,20}" value="<?php echo htmlspecialchars($_POST['code_massar'] ?? ''); ?>">
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="numero_apogee" class="form-label"><?= htmlspecialchars($lang['apogee_code'] ?? 'Numéro Apogée') ?>:</label>
+                    <input type="text" name="numero_apogee" id="numero_apogee" class="form-control" required value="<?php echo htmlspecialchars($_POST['numero_apogee'] ?? ''); ?>">
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="cycle" class="form-label"><?= htmlspecialchars($lang['cycle'] ?? 'Cycle') ?>:</label>
+                    <select name="cycle" id="cycle" class="form-select" required>
+                        <option value="">-- <?= htmlspecialchars($lang['select_cycle'] ?? 'Sélectionner un cycle') ?> --</option>
+                        <option value="CP" <?php echo (isset($_POST['cycle']) && $_POST['cycle'] == 'CP') ? 'selected' : ''; ?>>Cycle Préparatoire</option>
+                        <option value="ING" <?php echo (isset($_POST['cycle']) && $_POST['cycle'] == 'ING') ? 'selected' : ''; ?>>Cycle d'Ingénieur</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="classe_id" class="form-label"><?= htmlspecialchars($lang['class'] ?? 'Classe') ?>:</label>
+                    <select name="classe_id" id="classe_id" class="form-select" required>
+                        <option value="">-- <?= htmlspecialchars($lang['select_class'] ?? 'Sélectionner une classe') ?> --</option>
+                        <?php foreach ($classes as $class): ?>
+                            <option
+                                value="<?php echo htmlspecialchars($class['id']); ?>"
+                                data-niveau="<?php echo htmlspecialchars($class['niveau']); ?>"
+                                data-filiere_nom="<?php echo htmlspecialchars($class['filiere_nom']); ?>"
+                                data-filiere_id="<?php echo htmlspecialchars($class['filiere_id']); ?>"
+                                <?php echo (isset($_POST['classe_id']) && $_POST['classe_id'] == $class['id']) ? 'selected' : ''; ?>
+                            >
+                                <?php echo htmlspecialchars($class['nom_classe'] . ' (' . $class['annee_universitaire'] . ' - ' . $class['filiere_nom'] . ')'); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="filiere_display" class="form-label"><?= htmlspecialchars($lang['filiere_auto'] ?? 'Filière (Automatique)') ?>:</label>
+                    <input type="text" name="filiere_display" id="filiere_display" class="form-control" readonly>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="niveau_display" class="form-label"><?= htmlspecialchars($lang['level_auto'] ?? 'Niveau (Automatique)') ?>:</label>
+                    <input type="text" name="niveau_display" id="niveau_display" class="form-control" readonly>
+                </div>
+
+                <div class="col-12 mb-4">
+                    <label for="photo" class="form-label"><?= htmlspecialchars($lang['photo'] ?? 'Photo') ?>:</label>
+                    <input type="file" name="photo" id="photo" class="form-control" accept="image/*">
+                    <small class="form-text text-muted"><?= htmlspecialchars($lang['photo_formats'] ?? 'Formats acceptés: JPG, PNG (facultatif)') ?></small>
+                </div>
+
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-person-plus me-2"></i> <?= htmlspecialchars($lang['register_student'] ?? 'Enregistrer l\'étudiant') ?></button>
+                </div>
+            </div>
+        </form>
+
+        <div class="text-center mt-3">
+            <a href="admin_dashboard.php" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-2"></i> <?= htmlspecialchars($lang['back_to_dashboard'] ?? 'Retour au tableau de bord') ?></a>
+        </div>
+    </div>
+</main>
+
+<footer>
+    <div class="container">
+        <small>&copy; <?= date('Y') ?> ENSAO - Tous droits réservés</small>
+    </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // JavaScript pour le Mode Daltonien
+    document.getElementById('daltonienModeToggle').addEventListener('click', function() {
+        document.body.classList.toggle('daltonien-mode');
+        const isDaltonien = document.body.classList.contains('daltonien-mode');
+        localStorage.setItem('daltonienMode', isDaltonien); // Sauvegarder la préférence
+    });
+
+    // Vérifier la préférence du mode daltonien au chargement
+    if (localStorage.getItem('daltonienMode') === 'true') {
+        document.body.classList.add('daltonien-mode');
+    }
+
+    // Gestion des changements de langue pour rafraîchir la page
+    document.querySelectorAll('.dropdown-item[href*="?lang="]').forEach(item => {
+        item.addEventListener('click', function(event) {
+            event.preventDefault();
+            const url = new URL(window.location.href);
+            url.searchParams.set('lang', this.getAttribute('href').split('lang=')[1]);
+            window.location.href = url.toString();
         });
-    </script>
+    });
+
+    // Passer les données des classes du PHP au JavaScript
+    const classesData = <?php echo json_encode($classes_data_js); ?>;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const classeSelect = document.getElementById('classe_id');
+        const filiereDisplayInput = document.getElementById('filiere_display');
+        const niveauDisplayInput = document.getElementById('niveau_display');
+
+        function updateFiliereNiveau() {
+            const selectedClassId = classeSelect.value;
+            if (selectedClassId && classesData[selectedClassId]) {
+                filiereDisplayInput.value = classesData[selectedClassId].filiere_nom;
+                niveauDisplayInput.value = classesData[selectedClassId].niveau;
+            } else {
+                filiereDisplayInput.value = '';
+                niveauDisplayInput.value = '';
+            }
+        }
+
+        // Update on page load if a class is already selected (after submission error)
+        updateFiliereNiveau();
+
+        // Update when class selection changes
+        classeSelect.addEventListener('change', updateFiliereNiveau);
+    });
+</script>
 </body>
 </html>

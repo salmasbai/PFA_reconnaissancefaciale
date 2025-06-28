@@ -105,29 +105,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_justification'
 
 
 // --------------------------------------------------------------------------------------
-// Données de l'étudiant récupérées depuis la session (définies lors de la connexion)
+// Données de l'étudiant récupérées depuis la base de données et session
 // --------------------------------------------------------------------------------------
-$student_id = $_SESSION['user_id'];
+$student_user_id = $_SESSION['user_id'];
+$student_name = $_SESSION['user_name'] ?? 'Utilisateur Inconnu'; // Assuming 'user_name' holds full name
 
-// Récupération correcte du nom et prénom de la session
-$user_first_name = isset($_SESSION['user_first_name']) ? $_SESSION['user_first_name'] : '';
-$user_last_name = isset($_SESSION['user_last_name']) ? $_SESSION['user_last_name'] : '';
-$user_full_name = trim($user_first_name . ' ' . $user_last_name);
-
-if (empty($user_full_name)) {
-    $user_full_name = isset($lang['unknown_user']) ? $lang['unknown_user'] : 'Utilisateur Inconnu';
+// If 'user_name' is not reliable, fetch full name from DB
+// Otherwise, remove this block if $_SESSION['user_name'] is always set to full name
+if ($student_name === 'Utilisateur Inconnu' && isset($_SESSION['user_first_name']) && isset($_SESSION['user_last_name'])) {
+    $student_name = trim($_SESSION['user_first_name'] . ' ' . $_SESSION['user_last_name']);
 }
 
-$student_email = isset($_SESSION['user_email']) ? $_SESSION['user_email'] : 'N/A';
+$student_email = $_SESSION['user_email'] ?? 'N/A';
 
-$student_numero_etudiant = isset($_SESSION['student_numero_etudiant']) ? $_SESSION['student_numero_etudiant'] : 'N/A';
-$student_filiere_name = isset($_SESSION['student_filiere_name']) ? $_SESSION['student_filiere_name'] : 'N/A';
-$student_cycle_value = isset($_SESSION['student_cycle']) ? $_SESSION['student_cycle'] : 'N/A';
-$student_photo_path = isset($_SESSION['student_photo_path']) ? $_SESSION['student_photo_path'] : null;
-$student_numero_apogee = isset($_SESSION['student_numero_apogee']) ? $_SESSION['student_numero_apogee'] : 'N/A';
-$student_code_massar = isset($_SESSION['student_code_massar']) ? $_SESSION['student_code_massar'] : 'N/A';
+// Fetch detailed student info from 'etudiants' table based on user_id
+$etudiant_entity_id = null;
+$student_numero_etudiant = 'N/A';
+$student_filiere = 'N/A';
+$student_cycle = 'N/A';
+$student_photo_path = null;
+$student_numero_apogee = 'N/A';
+$student_code_massar = 'N/A';
+$student_classe_id = null; // Initialize student_classe_id
+$current_class_name = 'N/A'; // For PDF filename and display
 
-$student_class_display = isset($_SESSION['user_class']) ? $_SESSION['user_class'] : ($student_filiere_name . ' - ' . $student_cycle_value);
+try {
+    $stmt_student_details = $pdo->prepare("
+        SELECT e.id, e.numero_etudiant, e.photo_path, e.code_massar, e.numero_apogee, e.cycle, c.id AS classe_id, c.nom_classe, f.nom_filiere
+        FROM etudiants e
+        LEFT JOIN classes c ON e.classe_id = c.id
+        LEFT JOIN filieres f ON e.filiere_id = f.id
+        WHERE e.user_id = ?
+    ");
+    $stmt_student_details->execute([$student_user_id]);
+    $student_data = $stmt_student_details->fetch(PDO::FETCH_ASSOC);
+
+    if ($student_data) {
+        $etudiant_entity_id = $student_data['id']; // This is the ID from the 'etudiants' table
+        $student_numero_etudiant = $student_data['numero_etudiant'];
+        $student_filiere = $student_data['nom_filiere'];
+        $student_cycle = $student_data['cycle'];
+        $student_photo_path = $student_data['photo_path'];
+        $student_numero_apogee = $student_data['numero_apogee'];
+        $student_code_massar = $student_data['code_massar'];
+        $student_classe_id = $student_data['classe_id']; // Store classe_id in a variable
+        $current_class_name = $student_data['nom_classe'] ?? 'N/A'; // Get class name for PDF filename
+    }
+} catch (PDOException $e) {
+    error_log("Error fetching student details for user ID " . $student_user_id . ": " . $e->getMessage());
+    // Handle error gracefully
+}
+
+// The "classe" for display, combining filière and cycle
+$student_class_display = ($student_filiere != 'N/A' ? $student_filiere : '') . ($student_cycle != 'N/A' ? ' - ' . $student_cycle : '');
+if ($student_class_display === '') {
+    $student_class_display = 'N/A';
+}
 
 $current_date = date("d/m/Y");
 $current_time = date("H:i");
@@ -141,11 +174,6 @@ $justified_absences_count = 0;
 $unjustified_absences_count = 0;
 
 try {
-    // D'abord, récupérer l'ID de l'étudiant dans la table 'etudiants' à partir de son 'user_id'
-    $stmt_get_student_entity_id = $pdo->prepare("SELECT id FROM etudiants WHERE user_id = ?");
-    $stmt_get_student_entity_id->execute([$student_id]);
-    $etudiant_entity_id = $stmt_get_student_entity_id->fetchColumn();
-
     if ($etudiant_entity_id) {
         // Calculer les totaux d'absences
         $stmt_total_abs = $pdo->prepare("SELECT COUNT(*) AS total FROM absences WHERE etudiant_id = ?");
@@ -166,54 +194,63 @@ try {
                                          JOIN matieres m ON a.matiere_id = m.id
                                          WHERE a.etudiant_id = ?
                                          ORDER BY a.date DESC
-                                         LIMIT 5");
+                                         LIMIT 5"); // Limiter aux 5 dernières absences
         $stmt_absences->execute([$etudiant_entity_id]);
         $recent_absences = $stmt_absences->fetchAll(PDO::FETCH_ASSOC);
     }
 
 } catch (PDOException $e) {
+    // Gérer l'erreur de base de données pour les absences
     error_log("Error fetching student absences: " . $e->getMessage());
 }
 
-// --------------------------------------------------------------------------------------
-// RÉCUPÉRATION DE L'EMPLOI DU TEMPS DYNAMIQUE
-// --------------------------------------------------------------------------------------
-$emploi_du_temps = [];
-$student_classe_id = null;
-$nom_classe_pour_edt = '';
+// --- Fetch Timetable Data for display and PDF (if student has a class) ---
+$student_timetable_data = [];
+$time_slots = [
+    ['08:00', '10:00'],
+    ['10:00', '12:00'],
+    ['14:00', '16:00'],
+    ['16:00', '18:00']
+];
+$jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
 
-try {
-    // Récupérer classe_id et nom_classe via filiere et cycle (niveau)
-    $stmt_get_classe_info = $pdo->prepare("SELECT c.id, c.nom_classe
-                                             FROM classes c
-                                             JOIN etudiants e ON c.filiere_id = e.filiere_id AND c.niveau = e.cycle
-                                             WHERE e.user_id = ?");
-    $stmt_get_classe_info->execute([$student_id]);
-    $classe_info = $stmt_get_classe_info->fetch(PDO::FETCH_ASSOC);
-
-    if ($classe_info) {
-        $student_classe_id = $classe_info['id'];
-        $nom_classe_pour_edt = $classe_info['nom_classe'];
-
-        $stmt_edt = $pdo->prepare("SELECT jour_semaine, heure_debut, heure_fin, matiere, enseignant, salle
-                                     FROM emploi_du_temps
-                                     WHERE classe_id = ?
-                                     ORDER BY FIELD(jour_semaine, 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'), heure_debut");
+if ($student_classe_id) {
+    try {
+        $stmt_edt = $pdo->prepare("
+            SELECT edt.jour_semaine, edt.heure_debut, edt.heure_fin, m.nom AS nom_matiere, CONCAT(u.nom, ' ', u.prenom) AS nom_professeur, edt.salle
+            FROM emploi_du_temps edt
+            LEFT JOIN matieres m ON edt.matiere_id = m.id
+            LEFT JOIN utilisateurs u ON edt.professeur_id = u.id AND u.role = 'professeur'
+            WHERE edt.classe_id = ?
+            ORDER BY FIELD(jour_semaine, 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'), heure_debut
+        ");
         $stmt_edt->execute([$student_classe_id]);
-        $emploi_du_temps = $stmt_edt->fetchAll(PDO::FETCH_ASSOC);
-    }
+        $raw_edt_data = $stmt_edt->fetchAll(PDO::FETCH_ASSOC);
 
-} catch (PDOException $e) {
-    error_log("Error fetching student timetable: " . $e->getMessage());
-}
+        // Initialize $student_timetable_data with empty slots for all combinations
+        foreach ($jours as $jour) {
+            foreach ($time_slots as $slot) {
+                $slot_key = $slot[0] . '-' . $slot[1];
+                $student_timetable_data[$jour][$slot_key] = [
+                    'matiere' => '',
+                    'professeur' => '',
+                    'salle' => ''
+                ];
+            }
+        }
 
-$edt_pdf_file = '';
-if (!empty($nom_classe_pour_edt)) {
-    $formatted_class_name = str_replace(' ', '_', $nom_classe_pour_edt);
-    $edt_pdf_file = '../documents/emploi_du_temps_' . $formatted_class_name . '.pdf';
-    
-    if (!file_exists($edt_pdf_file)) {
-        $edt_pdf_file = '';
+        // Populate $student_timetable_data with fetched values
+        foreach ($raw_edt_data as $row) {
+            $slot_key = substr($row['heure_debut'], 0, 5) . '-' . substr($row['heure_fin'], 0, 5);
+            if (isset($student_timetable_data[$row['jour_semaine']][$slot_key])) {
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['matiere'] = $row['nom_matiere'];
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['professeur'] = $row['nom_professeur'];
+                $student_timetable_data[$row['jour_semaine']][$slot_key]['salle'] = $row['salle'];
+            }
+        }
+
+    } catch (PDOException $e) {
+        error_log("Error fetching student timetable data: " . $e->getMessage());
     }
 }
 
@@ -296,6 +333,34 @@ try {
             color: #721c24;
             border-color: #f5c6cb;
         }
+        /* Timetable table styling */
+        .timetable-table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-radius: 8px;
+            overflow: hidden; /* For rounded corners with border-collapse */
+        }
+        .timetable-table th, .timetable-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: center;
+            font-size: 13px;
+            vertical-align: middle;
+        }
+        .timetable-table th {
+            background-color: var(--secondary);
+            color: #fff;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .timetable-table tr:nth-child(even) {
+            background-color: #f8f8f8;
+        }
+        .timetable-table tr:hover {
+            background-color: #f0f0f0;
+        }
     </style>
 </head>
 <body>
@@ -342,7 +407,7 @@ try {
 
 <section class="dashboard-header text-center">
     <div class="container">
-        <h1 class="display-4 mb-2"><?= htmlspecialchars(isset($lang['welcome_student']) ? $lang['welcome_student'] : 'Bienvenue') ?>, <?= htmlspecialchars($user_full_name) ?>!</h1>
+        <h1 class="display-4 mb-2"><?= htmlspecialchars(isset($lang['welcome_student']) ? $lang['welcome_student'] : 'Bienvenue') ?>, <?= htmlspecialchars($student_name) ?>!</h1>
         <p class="lead"><?= htmlspecialchars(isset($lang['current_class']) ? $lang['current_class'] : 'Votre Classe') ?>: <?= htmlspecialchars($student_class_display) ?></p>
         <p class="mb-0"><?= htmlspecialchars(isset($lang['current_time']) ? $lang['current_time'] : 'Date et Heure Actuelles') ?>: <?= $current_date ?> <?= $current_time ?></p>
     </div>
@@ -440,45 +505,57 @@ try {
     <div class="content-section" id="schedule">
         <h3 class="mb-3"><i class="bi bi-calendar-week me-2"></i> <?= htmlspecialchars(isset($lang['schedule']) ? $lang['schedule'] : 'Mon Emploi du Temps') ?></h3>
         <p class="text-muted"><?= htmlspecialchars(isset($lang['schedule_desc']) ? $lang['schedule_desc'] : 'Consultez votre emploi du temps hebdomadaire.') ?></p>
-        <div class="text-center">
-            <?php if (!empty($emploi_du_temps)): ?>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-sm mt-3">
-                        <thead>
-                            <tr>
-                                <th><?= htmlspecialchars(isset($lang['day']) ? $lang['day'] : 'Jour') ?></th>
-                                <th><?= htmlspecialchars(isset($lang['start_time']) ? $lang['start_time'] : 'Début') ?></th>
-                                <th><?= htmlspecialchars(isset($lang['end_time']) ? $lang['end_time'] : 'Fin') ?></th>
-                                <th><?= htmlspecialchars(isset($lang['subject']) ? $lang['subject'] : 'Matière') ?></th>
-                                <th><?= htmlspecialchars(isset($lang['teacher']) ? $lang['teacher'] : 'Enseignant') ?></th>
-                                <th><?= htmlspecialchars(isset($lang['room']) ? $lang['room'] : 'Salle') ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($emploi_du_temps as $seance): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($seance['jour_semaine']) ?></td>
-                                    <td><?= htmlspecialchars(substr($seance['heure_debut'], 0, 5)) ?></td>
-                                    <td><?= htmlspecialchars(substr($seance['heure_fin'], 0, 5)) ?></td>
-                                    <td><?= htmlspecialchars($seance['matiere']) ?></td>
-                                    <td><?= htmlspecialchars($seance['enseignant']) ?></td>
-                                    <td><?= htmlspecialchars($seance['salle']) ?></td>
-                                </tr>
+        <?php if ($student_classe_id && !empty($student_timetable_data)): ?>
+            <div class="table-responsive" id="timetableToDownload">
+                <table class="timetable-table">
+                    <thead>
+                        <tr>
+                            <th><?= htmlspecialchars(isset($lang['day_slot']) ? $lang['day_slot'] : 'Jour / Créneau') ?></th>
+                            <?php foreach ($time_slots as $slot_index => $slot): ?>
+                                <th>
+                                    <?= htmlspecialchars(isset($lang['slot']) ? $lang['slot'] : 'Créneau') ?> <?= $slot_index + 1 ?><br>
+                                    <small>(<?= htmlspecialchars($slot[0] . '-' . $slot[1]) ?>)</small>
+                                </th>
                             <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php else: ?>
-                <p class="text-muted"><?= htmlspecialchars(isset($lang['no_schedule_available']) ? $lang['no_schedule_available'] : 'Aucun emploi du temps disponible pour votre classe.') ?></p>
-            <?php endif; ?>
-            <?php if (!empty($edt_pdf_file)): ?>
-                <a href="<?= htmlspecialchars($edt_pdf_file) ?>" class="btn btn-outline-primary" download>
-                    <i class="bi bi-download me-2"></i> <?= htmlspecialchars(isset($lang['download_schedule']) ? $lang['download_schedule'] : 'Télécharger l\'emploi du temps') ?>
-                </a>
-            <?php else: ?>
-                <p class="text-muted mt-2"><?= htmlspecialchars(isset($lang['download_not_available']) ? $lang['download_not_available'] : 'Téléchargement de l\'emploi du temps non disponible.') ?></p>
-            <?php endif; ?>
-        </div>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($jours as $jour): ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($jour) ?></strong></td>
+                                <?php foreach ($time_slots as $slot):
+                                    $slot_key = $slot[0] . '-' . $slot[1];
+                                    $data = $student_timetable_data[$jour][$slot_key];
+                                ?>
+                                    <td>
+                                        <?php if (!empty($data['matiere'])): ?>
+                                            <strong><?= htmlspecialchars($data['matiere']) ?></strong><br>
+                                            <small><?= htmlspecialchars($data['professeur']) ?></small><br>
+                                            <small class="text-muted"><?= htmlspecialchars($data['salle']) ?></small>
+                                        <?php else: ?>
+                                            -
+                                        <?php endif; ?>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="text-center mt-3">
+                <button type="button" class="btn btn-outline-primary" id="downloadPdfButton">
+                    <i class="bi bi-download me-2"></i> <?= htmlspecialchars(isset($lang['download_schedule']) ? $lang['download_schedule'] : 'Télécharger l\'emploi du temps') ?> (PDF)
+                </button>
+            </div>
+        <?php elseif ($student_classe_id && empty($student_timetable_data)): ?>
+            <div class="alert alert-info mt-4">
+                <?= htmlspecialchars(isset($lang['no_schedule_for_your_class']) ? $lang['no_schedule_for_your_class'] : 'Aucun emploi du temps n\'est défini pour votre classe pour le moment.') ?>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info mt-4">
+                <?= htmlspecialchars(isset($lang['no_class_assigned']) ? $lang['no_class_assigned'] : 'Votre classe n\'est pas encore attribuée, impossible d\'afficher l\'emploi du temps.') ?>
+            </div>
+        <?php endif; ?>
     </div>
 
     <div class="content-section" id="justifications">
@@ -534,11 +611,11 @@ try {
             <i class="bi bi-person-circle me-2"></i> <?= htmlspecialchars(isset($lang['my_profile']) ? $lang['my_profile'] : 'Mon Profil') ?>
         </div>
         <div class="card-body">
-            <p><strong><?= htmlspecialchars(isset($lang['name']) ? $lang['name'] : 'Nom Complet') ?>:</strong> <?= htmlspecialchars($user_full_name) ?></p>
-            <p><strong><?= htmlspecialchars(isset($lang['email']) ? $lang['email'] : 'Email') ?>:</strong> <?= htmlspecialchars($student_email) ?></p>
+            <p><strong><?= htmlspecialchars(isset($lang['name']) ? $lang['name'] : 'Nom Complet') ?>:</strong> <?= htmlspecialchars($student_name) ?></p>
+            <p><strong><?= htmlspecialchars(isset($lang['email']) ? $lang['email'] : 'Email') ?>:</b> <?= htmlspecialchars($student_email) ?></p>
             <p><strong><?= htmlspecialchars(isset($lang['id_number']) ? $lang['id_number'] : 'Numéro Étudiant') ?>:</strong> <?= htmlspecialchars($student_numero_etudiant) ?></p>
-            <p><strong><?= htmlspecialchars(isset($lang['filiere']) ? $lang['filiere'] : 'Filière') ?>:</strong> <?= htmlspecialchars($student_filiere_name) ?></p>
-            <p><strong><?= htmlspecialchars(isset($lang['cycle']) ? $lang['cycle'] : 'Cycle') ?>:</strong> <?= htmlspecialchars($student_cycle_value) ?></p>
+            <p><strong><?= htmlspecialchars(isset($lang['filiere']) ? $lang['filiere'] : 'Filière') ?>:</strong> <?= htmlspecialchars($student_filiere) ?></p>
+            <p><strong><?= htmlspecialchars(isset($lang['cycle']) ? $lang['cycle'] : 'Cycle') ?>:</strong> <?= htmlspecialchars($student_cycle) ?></p>
             <p><strong><?= htmlspecialchars(isset($lang['apogee_code']) ? $lang['apogee_code'] : 'Code Apogée') ?>:</strong> <?= htmlspecialchars($student_numero_apogee) ?></p>
             <p><strong><?= htmlspecialchars(isset($lang['massar_code']) ? $lang['massar_code'] : 'Code Massar') ?>:</strong> <?= htmlspecialchars($student_code_massar) ?></p>
 
@@ -561,6 +638,8 @@ try {
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
     // JavaScript pour le Mode Daltonien
     document.getElementById('daltonienModeToggle').addEventListener('click', function() {
@@ -582,6 +661,67 @@ try {
             url.searchParams.set('lang', this.getAttribute('href').split('lang=')[1]);
             window.location.href = url.toString();
         });
+    });
+
+    // JavaScript for PDF download using html2canvas and jsPDF
+    document.getElementById('downloadPdfButton').addEventListener('click', function() {
+        const input = document.getElementById('timetableToDownload'); // Element to capture
+
+        if (!input) {
+            console.error('Element #timetableToDownload not found. Cannot capture.');
+            alert('Error: The timetable element to download was not found on the page.');
+            return;
+        }
+
+        // Add a small delay to ensure all content is rendered
+        setTimeout(() => {
+            if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
+                console.error('html2canvas or jspdf is not loaded correctly.');
+                alert('Error: PDF generation libraries are not ready. Please try again.');
+                return;
+            }
+
+            html2canvas(input, {
+                scale: 2, // Increase resolution for better quality
+                useCORS: true // Important if you have images or fonts from different origins
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf; // Correct way to access jsPDF
+                const pdf = new jsPDF({
+                    orientation: 'landscape', // Landscape for wide table
+                    unit: 'mm', // Use millimeters for standard dimensions
+                    format: 'a4'
+                });
+
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+
+                const imgWidth = canvas.width;
+                const imgHeight = canvas.height;
+
+                // Calculate aspect ratio to maintain proportions
+                const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                const finalImgWidth = imgWidth * ratio * 0.9; // Adjusted for a small margin
+                const finalImgHeight = imgHeight * ratio * 0.9; // Adjusted for a small margin
+
+                // Center the image on the page
+                const posX = (pdfWidth - finalImgWidth) / 2;
+                const posY = (pdfHeight - finalImgHeight) / 2;
+
+                pdf.addImage(imgData, 'PNG', posX, posY, finalImgWidth, finalImgHeight);
+
+                // Get the class name for the filename
+                const classNameForFilename = "<?= htmlspecialchars($current_class_name) ?>";
+                const fileName = `emploi_du_temps_${classNameForFilename || 'etudiant'}.pdf`;
+
+                pdf.save(fileName);
+                console.log('PDF saved: ' + fileName);
+
+            }).catch(error => {
+                console.error('Error generating PDF:', error);
+                alert('An error occurred while downloading the PDF. Please check the console for more details.');
+            });
+        }, 300); // 300ms delay
     });
 </script>
 </body>
