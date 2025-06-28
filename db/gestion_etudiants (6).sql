@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : 127.0.0.1:3306
--- Généré le : sam. 28 juin 2025 à 10:55
+-- Généré le : sam. 28 juin 2025 à 15:50
 -- Version du serveur : 9.1.0
 -- Version de PHP : 8.4.0
 
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS `absences` (
   PRIMARY KEY (`id`),
   KEY `etudiant_id` (`etudiant_id`),
   KEY `matiere_id` (`matiere_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Déchargement des données de la table `absences`
@@ -52,7 +52,9 @@ INSERT INTO `absences` (`id`, `etudiant_id`, `matiere_id`, `date`, `heure_debut_
 (6, 15, 5, '2025-06-16', '10:00:00', '12:00:00', 0),
 (10, 18, 1, '2025-06-02', '08:00:00', '10:00:00', 0),
 (12, 12, 1, '2025-06-02', '08:00:00', '10:00:00', 1),
-(13, 16, 1, '2025-06-02', '08:00:00', '10:00:00', 0);
+(13, 16, 1, '2025-06-02', '08:00:00', '10:00:00', 0),
+(14, 20, 1, '2025-06-20', '08:00:00', '10:00:00', 0),
+(15, 20, 5, '2025-06-21', '10:00:00', '12:00:00', 1);
 
 -- --------------------------------------------------------
 
@@ -77,35 +79,35 @@ CREATE TABLE IF NOT EXISTS `classes` (
 --
 
 INSERT INTO `classes` (`id`, `nom_classe`, `niveau`, `filiere`, `annee_universitaire`, `filiere_id`) VALUES
-(3, 'ITIRC1', '1', '', '2025/2026', 1),
-(4, 'ITIRC2', '2', '', '2025/2026', 1),
-(5, 'ITIRC3', '3', '', '2025/2026', 1),
-(6, 'GC1', '1', '', '2025/2026', 2),
-(7, 'GC2', '2', '', '2025/2026', 2),
-(8, 'GC3', '3', '', '2025/2026', 2),
-(12, 'CP 1', '1', '', '2025/2026', 4),
-(13, 'CP 2', '2', '', '2025/2026', 4),
-(14, 'IDSCC1', '1', '', '2025/2026', 5),
-(15, 'IDSCC2', '2', '', '2025/2026', 5),
-(16, 'IDSCC3', '3', '', '2025/2026', 5),
-(17, 'SICS1', '1', '', '2025/2026', 6),
-(18, 'SICS2', '2', '', '2025/2026', 6),
-(19, 'SICS3', '3', '', '2025/2026', 6),
-(20, 'GE1', '1', '', '2025/2026', 7),
-(21, 'GE2', '2', '', '2025/2026', 7),
-(22, 'GE3', '3', '', '2025/2026', 7),
-(23, 'GI1', '1', '', '2025/2026', 8),
-(24, 'GI2', '2', '', '2025/2026', 8),
-(25, 'GI3', '3', '', '2025/2026', 8),
-(26, 'GINDS1', '1', '', '2025/2026', 9),
-(27, 'GINDS2', '2', '', '2025/2026', 9),
-(28, 'GINDS3', '3', '', '2025/2026', 9),
-(29, 'GSEIR1', '1', '', '2025/2026', 10),
-(30, 'GSEIR2', '2', '', '2025/2026', 10),
-(31, 'GSEIR3', '3', '', '2025/2026', 10),
-(32, 'MGSI1', '1', '', '2025/2026', 11),
-(33, 'MGSI2', '2', '', '2025/2026', 11),
-(34, 'MGSI3', '3', '', '2025/2026', 11);
+(3, 'ITIRC1', 'ING', '', '2025/2026', 1),
+(4, 'ITIRC2', 'ING', '', '2025/2026', 1),
+(5, 'ITIRC3', 'ING', '', '2025/2026', 1),
+(6, 'GC1', 'ING', '', '2025/2026', 2),
+(7, 'GC2', 'ING', '', '2025/2026', 2),
+(8, 'GC3', 'ING', '', '2025/2026', 2),
+(12, 'CP 1', 'CP', '', '2025/2026', 4),
+(13, 'CP 2', 'CP', '', '2025/2026', 4),
+(14, 'IDSCC1', 'ING', '', '2025/2026', 5),
+(15, 'IDSCC2', 'ING', '', '2025/2026', 5),
+(16, 'IDSCC3', 'ING', '', '2025/2026', 5),
+(17, 'SICS1', 'ING', '', '2025/2026', 6),
+(18, 'SICS2', 'ING', '', '2025/2026', 6),
+(19, 'SICS3', 'ING', '', '2025/2026', 6),
+(20, 'GE1', 'ING', '', '2025/2026', 7),
+(21, 'GE2', 'ING', '', '2025/2026', 7),
+(22, 'GE3', 'ING', '', '2025/2026', 7),
+(23, 'GI1', 'ING', '', '2025/2026', 8),
+(24, 'GI2', 'ING', '', '2025/2026', 8),
+(25, 'GI3', 'ING', '', '2025/2026', 8),
+(26, 'GINDS1', 'ING', '', '2025/2026', 9),
+(27, 'GINDS2', 'ING', '', '2025/2026', 9),
+(28, 'GINDS3', 'ING', '', '2025/2026', 9),
+(29, 'GSEIR1', 'ING', '', '2025/2026', 10),
+(30, 'GSEIR2', 'ING', '', '2025/2026', 10),
+(31, 'GSEIR3', 'ING', '', '2025/2026', 10),
+(32, 'MGSI1', 'ING', '', '2025/2026', 11),
+(33, 'MGSI2', 'ING', '', '2025/2026', 11),
+(34, 'MGSI3', 'ING', '', '2025/2026', 11);
 
 -- --------------------------------------------------------
 
@@ -260,6 +262,35 @@ INSERT INTO `filieres` (`id`, `nom_filiere`, `type_filiere`) VALUES
 -- --------------------------------------------------------
 
 --
+-- Structure de la table `justifications_demandes`
+--
+
+DROP TABLE IF EXISTS `justifications_demandes`;
+CREATE TABLE IF NOT EXISTS `justifications_demandes` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `etudiant_id` int NOT NULL,
+  `absence_date` date NOT NULL,
+  `file_path` varchar(255) NOT NULL,
+  `status` enum('pending','approved','rejected') DEFAULT 'pending',
+  `submitted_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `processed_by_user_id` int DEFAULT NULL,
+  `processed_at` datetime DEFAULT NULL,
+  `admin_comment` text,
+  PRIMARY KEY (`id`),
+  KEY `etudiant_id` (`etudiant_id`)
+) ENGINE=MyISAM AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Déchargement des données de la table `justifications_demandes`
+--
+
+INSERT INTO `justifications_demandes` (`id`, `etudiant_id`, `absence_date`, `file_path`, `status`, `submitted_at`, `processed_by_user_id`, `processed_at`, `admin_comment`) VALUES
+(1, 20, '2025-06-20', 'uploads/justifications/justif_685fe47f536af7.52921357.png', 'pending', '2025-06-28 12:47:59', NULL, NULL, NULL),
+(2, 20, '2025-06-21', 'uploads/justifications/justif_685ff69630dc05.07422519.png', 'pending', '2025-06-28 14:05:10', NULL, NULL, NULL);
+
+-- --------------------------------------------------------
+
+--
 -- Structure de la table `matieres`
 --
 
@@ -298,7 +329,7 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `token` (`token`),
   KEY `user_id` (`user_id`)
-) ENGINE=MyISAM AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=MyISAM AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -363,7 +394,7 @@ INSERT INTO `utilisateurs` (`id`, `nom`, `prenom`, `email`, `password`, `role`, 
 (7, 'boukssim', 'mouhssine', 'mouhssine.boukssim.25@ump.ac.ma', '$2y$10$5G55TDtBCf29KyqLOBTus../l7iRcLxsDEKcE5tL1kc6n7chfuYt2', 'professeur', '2025-06-24 00:40:50'),
 (8, 'TAIBI', 'CHAKIB', 'chakib.taibi.25@ump.ac.ma', '$2y$10$b0ozwOQCos2xW.BpxHCdHeCpfbl24BKZfKXzyP80r6PqnHjU6Js9e', 'professeur', '2025-06-25 01:24:46'),
 (9, 'azdaag', 'abdellah', 'abdellah.azdaag.25@ump.ac.ma', '$2y$10$3gLU/XipeiAxDLvd8.tQRuHrIP/CiHxRhlyunirhxqLDRQldOf7Ui', 'etudiant', '2025-06-26 14:43:45'),
-(10, 'OUARY', 'Emen', 'imane.ouary20@ump.ac.ma', '$2y$12$S55O/csXWFaAkI1Nj3C/b.IjmCFJiAafsY8viKDjTDPdmW61CP3we', 'etudiant', '2025-06-27 21:45:02');
+(10, 'OUARY', 'Emen', 'imane.ouary20@ump.ac.ma', '$2y$12$IyO10wvRuwASOfDYHaiYY.d/8GwtrcEetI7/5o3vPtzJoHiYKUEKe', 'etudiant', '2025-06-27 21:45:02');
 
 --
 -- Contraintes pour les tables déchargées
