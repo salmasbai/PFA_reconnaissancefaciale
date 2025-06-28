@@ -1,11 +1,14 @@
 <?php
 session_start();
 require_once '../includes/config.php'; // Connexion à la base de données
-$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
-require_once "../lang/{$lang_code}.php";
 
-// Vérifier si l'utilisateur est connecté et est un étudiant
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'etudiant') {
+// Adaptation pour compatibilité PHP < 7.0
+$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
+require_once "../lang/" . $lang_code . ".php"; // Utilisation de la concaténation
+
+// Vérifier si l'utilisateur est connecté. Si non, rediriger vers la page de connexion.
+// login.php est dans le même dossier 'authentification'
+if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
@@ -20,17 +23,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 1. Validation des champs vides
     if (empty($current_password) || empty($new_password) || empty($confirm_new_password)) {
-        $message = $lang['change_password_empty_fields'] ?? 'Veuillez remplir tous les champs.';
+        $message = isset($lang['change_password_empty_fields']) ? $lang['change_password_empty_fields'] : 'Veuillez remplir tous les champs.';
         $message_type = 'danger';
     }
     // 2. Vérification de la correspondance des nouveaux mots de passe
     elseif ($new_password !== $confirm_new_password) {
-        $message = $lang['change_password_mismatch'] ?? 'Les nouveaux mots de passe ne correspondent pas.';
+        $message = isset($lang['change_password_mismatch']) ? $lang['change_password_mismatch'] : 'Les nouveaux mots de passe ne correspondent pas.';
         $message_type = 'danger';
     }
     // 3. Vérification de la complexité du nouveau mot de passe (Exemple : longueur min 6 caractères)
     elseif (strlen($new_password) < 6) {
-        $message = $lang['change_password_short'] ?? 'Le nouveau mot de passe doit contenir au moins 6 caractères.';
+        $message = isset($lang['change_password_short']) ? $lang['change_password_short'] : 'Le nouveau mot de passe doit contenir au moins 6 caractères.';
         $message_type = 'danger';
     }
     else {
@@ -43,37 +46,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Vérifier si l'utilisateur existe et si le mot de passe actuel est correct
             if ($user && password_verify($current_password, $user['password_hash'])) {
                 // Hacher le nouveau mot de passe
-                $new_password_hashed = password_hash($new_password, PASSWORD_DEFAULT);
+                $new_password_hashed = password_hash($new_password, PASSWORD_DEFAULT); // password_hash() nécessite PHP >= 5.5
 
                 // Mettre à jour le mot de passe dans la base de données
                 $update_stmt = $pdo->prepare("UPDATE utilisateurs SET password = ? WHERE id = ?");
                 $update_stmt->execute([$new_password_hashed, $_SESSION['user_id']]);
 
-                $message = $lang['change_password_success'] ?? 'Votre mot de passe a été changé avec succès.';
-                $message_type = 'success';
+                // --- MODIFICATION ICI : Redirection vers la page de connexion avec un message de succès ---
+                // Détruire la session actuelle pour forcer une nouvelle connexion avec le nouveau mot de passe
+                session_destroy();
+                // Il est recommandé de démarrer une nouvelle session ici pour pouvoir stocker un message $_SESSION
+                // Cependant, pour un message dans l'URL (qui est souvent préféré pour les redirections immédiates),
+                // session_start() n'est pas strictement nécessaire après session_destroy() si vous n'ajoutez rien à $_SESSION.
+                // Si vous voulez être 100% sûr d'avoir une nouvelle session propre pour de futurs messages basés sur $_SESSION:
+                session_start();
 
-                // Optionnel : Vous pouvez rediriger l'utilisateur après un succès pour éviter la resoumission du formulaire
-                // header("Location: dashboard.php?message=" . urlencode($message) . "&type=" . $message_type);
-                // exit();
+                // Redirige vers login.php avec un message de succès
+                header("Location: login.php?message_type=success&message=" . urlencode(isset($lang['password_change_success_login']) ? $lang['password_change_success_login'] : 'Votre mot de passe a été changé avec succès. Veuillez vous connecter avec le nouveau mot de passe.'));
+                exit();
 
             } else {
-                $message = $lang['change_password_incorrect_current'] ?? 'L\'ancien mot de passe est incorrect.';
+                $message = isset($lang['change_password_incorrect_current']) ? $lang['change_password_incorrect_current'] : 'L\'ancien mot de passe est incorrect.';
                 $message_type = 'danger';
             }
         } catch (PDOException $e) {
-            $message = $lang['login_db_error'] ?? 'Une erreur de base de données est survenue lors du changement de mot de passe.';
+            $message = isset($lang['login_db_error']) ? $lang['login_db_error'] : 'Une erreur de base de données est survenue lors du changement de mot de passe.';
             $message_type = 'danger';
             error_log("Password change error for user ID " . $_SESSION['user_id'] . ": " . $e->getMessage());
         }
     }
 }
+
+// REMOVED: La détermination de $dashboard_url est supprimée car nous redirigeons systématiquement.
+// Note: $lang_code est toujours disponible car il est défini en début de fichier.
 ?>
+
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars($lang_code) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ENSAO – <?= htmlspecialchars($lang['change_password_title'] ?? 'Changer le mot de passe') ?></title>
+    <title>ENSAO – <?= htmlspecialchars(isset($lang['change_password_title']) ? $lang['change_password_title'] : 'Changer le mot de passe') ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
@@ -110,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="container-sm">
-        <h2 class="text-center mb-4"><?= htmlspecialchars($lang['change_password_title'] ?? 'Changer le mot de passe') ?></h2>
+        <h2 class="text-center mb-4"><?= htmlspecialchars(isset($lang['change_password_title']) ? $lang['change_password_title'] : 'Changer le mot de passe') ?></h2>
         <?php if ($message): ?>
             <div class="alert alert-<?= htmlspecialchars($message_type) ?>" role="alert">
                 <?= htmlspecialchars($message) ?>
@@ -118,22 +131,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
         <form action="" method="POST">
             <div class="mb-3">
-                <label for="current_password" class="form-label"><?= htmlspecialchars($lang['current_password'] ?? 'Mot de passe actuel') ?></label>
+                <label for="current_password" class="form-label"><?= htmlspecialchars(isset($lang['current_password']) ? $lang['current_password'] : 'Mot de passe actuel') ?></label>
                 <input type="password" class="form-control" id="current_password" name="current_password" required>
             </div>
             <div class="mb-3">
-                <label for="new_password" class="form-label"><?= htmlspecialchars($lang['new_password'] ?? 'Nouveau mot de passe') ?></label>
+                <label for="new_password" class="form-label"><?= htmlspecialchars(isset($lang['new_password']) ? $lang['new_password'] : 'Nouveau mot de passe') ?></label>
                 <input type="password" class="form-control" id="new_password" name="new_password" required>
             </div>
             <div class="mb-3">
-                <label for="confirm_new_password" class="form-label"><?= htmlspecialchars($lang['confirm_new_password'] ?? 'Confirmer le nouveau mot de passe') ?></label>
+                <label for="confirm_new_password" class="form-label"><?= htmlspecialchars(isset($lang['confirm_new_password']) ? $lang['confirm_new_password'] : 'Confirmer le nouveau mot de passe') ?></label>
                 <input type="password" class="form-control" id="confirm_new_password" name="confirm_new_password" required>
             </div>
-            <button type="submit" class="btn btn-primary w-100"><?= htmlspecialchars($lang['save_changes'] ?? 'Enregistrer les changements') ?></button>
+            <button type="submit" class="btn btn-primary w-100"><?= htmlspecialchars(isset($lang['save_changes']) ? $lang['save_changes'] : 'Enregistrer les changements') ?></button>
         </form>
-        <p class="text-center mt-3">
-            <a href="dashboard.php"><?= htmlspecialchars($lang['back_to_dashboard'] ?? 'Retour au tableau de bord') ?></a>
-        </p>
-    </div>
+        </div>
 </body>
 </html>

@@ -1,19 +1,19 @@
 <?php
 session_start();
 if (isset($_GET['lang'])) {
-  $_SESSION['lang'] = $_GET['lang'];
+    $_SESSION['lang'] = $_GET['lang'];
 }
-$lang_code = $_SESSION['lang'] ?? 'fr';
+// Changement pour compatibilité PHP < 7.0
+$lang_code = isset($_SESSION['lang']) ? $_SESSION['lang'] : 'fr';
 require_once 'includes/config.php';
-require_once "lang/$lang_code.php";
+require_once "lang/" . $lang_code . ".php"; // Utilisation de la concaténation
 ?>
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars($lang_code) ?>">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ENSAO – <?= htmlspecialchars($lang['title']) ?></title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <title>ENSAO – <?= htmlspecialchars(isset($lang['title']) ? $lang['title'] : 'Titre par défaut') ?></title> <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet" />
   <style>
@@ -107,7 +107,6 @@ require_once "lang/$lang_code.php";
 </head>
 <body>
 
-<!-- Barre de navigation -->
 <nav class="navbar navbar-expand-lg bg-white shadow-sm fixed-top">
   <div class="container">
     <a class="navbar-brand d-flex align-items-center" href="#">
@@ -129,17 +128,12 @@ require_once "lang/$lang_code.php";
 
     <div class="collapse navbar-collapse" id="mainNav">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link active" href="#"><?= $lang['home'] ?? 'Accueil' ?></a></li>
-        <li class="nav-item"><a class="nav-link" href="#features"><?= $lang['features'] ?? 'Fonctionnalités' ?></a></li>
-        <li class="nav-item"><a class="nav-link" href="#integrations"><?= $lang['integrations'] ?? 'Intégrations' ?></a></li>
-        <li class="nav-item"><a class="nav-link" href="#resources"><?= $lang['resources'] ?? 'Ressources' ?></a></li>
-      </ul>
+        <li class="nav-item"><a class="nav-link active" href="#"><?= htmlspecialchars(isset($lang['home']) ? $lang['home'] : 'Accueil') ?></a></li> <li class="nav-item"><a class="nav-link" href="#features"><?= htmlspecialchars(isset($lang['features']) ? $lang['features'] : 'Fonctionnalités') ?></a></li> <li class="nav-item"><a class="nav-link" href="#integrations"><?= htmlspecialchars(isset($lang['integrations']) ? $lang['integrations'] : 'Intégrations') ?></a></li> <li class="nav-item"><a class="nav-link" href="#resources"><?= htmlspecialchars(isset($lang['resources']) ? $lang['resources'] : 'Ressources') ?></a></li> </ul>
 
       <div class="d-flex align-items-center gap-3">
         <a href="#" class="text-dark fs-5"><i class="bi bi-search"></i></a>
 
-        <!-- Champ de recherche masqué -->
-      <form id="searchForm" class="d-none ms-2" method="get" action="recherche.php">
+        <form id="searchForm" class="d-none ms-2" method="get" action="recherche.php">
         <input type="text" name="q" class="form-control" placeholder="Rechercher..." />
       </form>
 
@@ -151,7 +145,7 @@ require_once "lang/$lang_code.php";
             role="button"
             data-bs-toggle="dropdown"
             aria-expanded="false"
-          ><?= strtoupper($lang_code) ?></a>
+          ><?= htmlspecialchars(strtoupper($lang_code)) ?></a>
           <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="langDropdown">
             <li><a class="dropdown-item" href="?lang=fr">FR – Français</a></li>
             <li><a class="dropdown-item" href="?lang=en">EN – English</a></li>
@@ -159,34 +153,18 @@ require_once "lang/$lang_code.php";
           </ul>
         </div>
 
-        <div class="dropdown">
-          <button
-            class="btn btn-outline-primary dropdown-toggle"
-            type="button"
-            id="loginDropdown"
-            data-bs-toggle="dropdown"
-            aria-expanded="false"
-          ><?= $lang['login'] ?? 'Se connecter' ?></button>
-          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="loginDropdown">
-            <li><a class="dropdown-item" href="etudiants/login.php"><?= $lang['login_student'] ?? 'Étudiant' ?></a></li>
-            <li><a class="dropdown-item" href="professeurs/login.php"><?= $lang['login_teacher'] ?? 'Professeur' ?></a></li>
-            <li><a class="dropdown-item" href="admin/login.php"><?= $lang['login_admin'] ?? 'Administrateur' ?></a></li>
-          </ul>
+        <div class="nav-item">
+          <a
+            class="btn btn-outline-primary"
+            href="authentification/login.php" ><?= htmlspecialchars(isset($lang['login']) ? $lang['login'] : 'Connexion') ?></a> </div>
         </div>
-      </div>
     </div>
   </div>
 </nav>
 
-<!-- Héro principal -->
 <section class="hero d-flex flex-column align-items-center text-center" id="hero">
   <div class="container">
-    <h1 class="mb-3"><?= htmlspecialchars($lang['title']) ?></h1>
-    <p class="lead mb-4"><?= htmlspecialchars($lang['subtitle']) ?></p>
-    <a href="etudiants/login.php" class="btn btn-primary btn-lg me-2 mb-4"><?= htmlspecialchars($lang['start_button']) ?></a>
-
-    <!-- Carrousel -->
-    <div
+    <h1 class="mb-3"><?= htmlspecialchars(isset($lang['title']) ? $lang['title'] : 'Titre par défaut') ?></h1> <p class="lead mb-4"><?= htmlspecialchars(isset($lang['subtitle']) ? $lang['subtitle'] : 'Sous-titre par défaut') ?></p> <a href="authentification/login.php" class="btn btn-primary btn-lg me-2 mb-4"><?= htmlspecialchars(isset($lang['start_button']) ? $lang['start_button'] : 'Commencez maintenant') ?></a> <div
       id="carouselENSAO"
       class="carousel slide carousel-fade w-100"
       data-bs-ride="carousel"
@@ -197,21 +175,17 @@ require_once "lang/$lang_code.php";
           <img
             src="assets/images/campus_ensao.png"
             class="d-block w-100"
-            alt="<?= htmlspecialchars($lang['carousel_1'] ?? 'Campus ENSAO') ?>"
-          />
+            alt="<?= htmlspecialchars(isset($lang['carousel_1']) ? $lang['carousel_1'] : 'Campus ENSAO') ?>" />
           <div class="carousel-caption d-none d-md-block">
-            <h5><?= htmlspecialchars($lang['carousel_1'] ?? 'Campus ENSAO') ?></h5>
-          </div>
+            <h5><?= htmlspecialchars(isset($lang['carousel_1']) ? $lang['carousel_1'] : 'Campus ENSAO') ?></h5> </div>
         </div>
         <div class="carousel-item">
           <img
             src="assets/images/etudiants_conference.png"
             class="d-block w-100"
-            alt="<?= htmlspecialchars($lang['carousel_2'] ?? 'Étudiants en conférence') ?>"
-          />
+            alt="<?= htmlspecialchars(isset($lang['carousel_2']) ? $lang['carousel_2'] : 'Étudiants en conférence') ?>" />
           <div class="carousel-caption d-none d-md-block">
-            <h5><?= htmlspecialchars($lang['carousel_2'] ?? 'Étudiants en conférence') ?></h5>
-          </div>
+            <h5><?= htmlspecialchars(isset($lang['carousel_2']) ? $lang['carousel_2'] : 'Étudiants en conférence') ?></h5> </div>
         </div>
       </div>
 
@@ -222,8 +196,7 @@ require_once "lang/$lang_code.php";
         data-bs-slide="prev"
       >
         <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-        <span class="visually-hidden"><?= $lang['previous'] ?? 'Précédent' ?></span>
-      </button>
+        <span class="visually-hidden"><?= htmlspecialchars(isset($lang['previous']) ? $lang['previous'] : 'Précédent') ?></span> </button>
       <button
         class="carousel-control-next"
         type="button"
@@ -231,42 +204,31 @@ require_once "lang/$lang_code.php";
         data-bs-slide="next"
       >
         <span class="carousel-control-next-icon" aria-hidden="true"></span>
-        <span class="visually-hidden"><?= $lang['next'] ?? 'Suivant' ?></span>
-      </button>
+        <span class="visually-hidden"><?= htmlspecialchars(isset($lang['next']) ? $lang['next'] : 'Suivant') ?></span> </button>
     </div>
   </div>
 </section>
 
-<!-- Section fonctionnalités -->
 <section class="py-5" id="features">
   <div class="container">
-    <h2 class="text-center mb-4"><?= htmlspecialchars($lang['features']) ?></h2>
-    <div class="row g-4">
+    <h2 class="text-center mb-4"><?= htmlspecialchars(isset($lang['features']) ? $lang['features'] : 'Fonctionnalités') ?></h2> <div class="row g-4">
       <div class="col-md-4">
-        <h4><?= htmlspecialchars($lang['feature1_title']) ?></h4>
-        <p><?= htmlspecialchars($lang['feature1_desc']) ?></p>
-      </div>
+        <h4><?= htmlspecialchars(isset($lang['feature1_title']) ? $lang['feature1_title'] : 'Titre Fonctionnalité 1') ?></h4> <p><?= htmlspecialchars(isset($lang['feature1_desc']) ? $lang['feature1_desc'] : 'Description Fonctionnalité 1') ?></p> </div>
       <div class="col-md-4">
-        <h4><?= htmlspecialchars($lang['feature2_title']) ?></h4>
-        <p><?= htmlspecialchars($lang['feature2_desc']) ?></p>
-      </div>
+        <h4><?= htmlspecialchars(isset($lang['feature2_title']) ? $lang['feature2_title'] : 'Titre Fonctionnalité 2') ?></h4> <p><?= htmlspecialchars(isset($lang['feature2_desc']) ? $lang['feature2_desc'] : 'Description Fonctionnalité 2') ?></p> </div>
       <div class="col-md-4">
-        <h4><?= htmlspecialchars($lang['feature3_title']) ?></h4>
-        <p><?= htmlspecialchars($lang['feature3_desc']) ?></p>
-      </div>
+        <h4><?= htmlspecialchars(isset($lang['feature3_title']) ? $lang['feature3_title'] : 'Titre Fonctionnalité 3') ?></h4> <p><?= htmlspecialchars(isset($lang['feature3_desc']) ? $lang['feature3_desc'] : 'Description Fonctionnalité 3') ?></p> </div>
     </div>
   </div>
 </section>
 
-<!-- Section intégrations -->
 <section class="py-5 bg-light" id="integrations">
   <div class="container">
-    <h2 class="text-center mb-4"><?= htmlspecialchars($lang['integrations']) ?></h2>
-    <div class="row g-4 text-center">
+    <h2 class="text-center mb-4"><?= htmlspecialchars(isset($lang['integrations']) ? $lang['integrations'] : 'Intégrations') ?></h2> <div class="row g-4 text-center">
 
     <div class="col-md-3 text-center">
-  <img src="assets/images/logo_ia.png" alt="Intelligence Artificielle" class="img-fluid mb-2" style="width: 100px;">
-</div>
+      <img src="assets/images/logo_ia.png" alt="Intelligence Artificielle" class="img-fluid mb-2" style="width: 100px;">
+    </div>
 
 
       <div class="col-md-3">
@@ -279,41 +241,30 @@ require_once "lang/$lang_code.php";
         <img src="assets/images/logo_mysql.png" alt="MySQL" class="img-fluid" style="max-height:80px" />
       </div>
       <div class="col-md-12 d-flex justify-content-center">
-  <div class="text-center">
-    <img src="assets/images/logo_face_recognition.png" alt="Reconnaissance Faciale" class="img-fluid mb-2" style="width: 100px;">
-  </div>
-</div>
+        <div class="text-center">
+          <img src="assets/images/logo_face_recognition.png" alt="Reconnaissance Faciale" class="img-fluid mb-2" style="width: 100px;">
+        </div>
+      </div>
 
     </div>
   </div>
 </section>
 
-<!-- Section ressources -->
 <section class="py-5" id="resources">
   <div class="container">
-    <h2 class="text-center mb-4"><?= htmlspecialchars($lang['resources']) ?></h2>
-    <div class="row">
+    <h2 class="text-center mb-4"><?= htmlspecialchars(isset($lang['resources']) ? $lang['resources'] : 'Ressources') ?></h2> <div class="row">
       <div class="col-md-6">
-        <h5><?= htmlspecialchars($lang['resources_docs_title']) ?></h5>
-        <ul>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_docs_item1']) ?></a></li>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_docs_item2']) ?></a></li>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_docs_item3']) ?></a></li>
-        </ul>
+        <h5><?= htmlspecialchars(isset($lang['resources_docs_title']) ? $lang['resources_docs_title'] : 'Documentation') ?></h5> <ul>
+          <li><a href="#"><?= htmlspecialchars(isset($lang['resources_docs_item1']) ? $lang['resources_docs_item1'] : 'Guide de démarrage') ?></a></li> <li><a href="#"><?= htmlspecialchars(isset($lang['resources_docs_item2']) ? $lang['resources_docs_item2'] : 'Référence API') ?></a></li> <li><a href="#"><?= htmlspecialchars(isset($lang['resources_docs_item3']) ? $lang['resources_docs_item3'] : 'FAQ') ?></a></li> </ul>
       </div>
       <div class="col-md-6">
-        <h5><?= htmlspecialchars($lang['resources_support_title']) ?></h5>
-        <ul>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_support_item1']) ?></a></li>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_support_item2']) ?></a></li>
-          <li><a href="#"><?= htmlspecialchars($lang['resources_support_item3']) ?></a></li>
-        </ul>
+        <h5><?= htmlspecialchars(isset($lang['resources_support_title']) ? $lang['resources_support_title'] : 'Support') ?></h5> <ul>
+          <li><a href="#"><?= htmlspecialchars(isset($lang['resources_support_item1']) ? $lang['resources_support_item1'] : 'Contactez-nous') ?></a></li> <li><a href="#"><?= htmlspecialchars(isset($lang['resources_support_item2']) ? $lang['resources_support_item2'] : 'Forum') ?></a></li> <li><a href="#"><?= htmlspecialchars(isset($lang['resources_support_item3']) ? $lang['resources_support_item3'] : 'Tutoriels') ?></a></li> </ul>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Pied de page -->
 <footer>
   <div class="container">
     <small>&copy; <?= date('Y') ?> ENSAO - Tous droits réservés</small>
@@ -321,10 +272,6 @@ require_once "lang/$lang_code.php";
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
-
-
-
 
 </body>
 </html>

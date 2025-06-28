@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Africa/Casablanca'); 
 // Configuration de la base de données
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'gestion_etudiants');
@@ -30,7 +31,7 @@ ini_set('session.sid_length', 128);
 ini_set('session.hash_function', 'sha256');*/
 
 // Configuration des chemins
-define('BASE_URL', 'http://localhost:8080/PFA_project_TEST1/');  
+define('BASE_URL', 'http://localhost/PFA_reconnaissancefaciale/');  
 define('UPLOAD_DIR', realpath(__DIR__ . '/../uploads/etudiants/') . DIRECTORY_SEPARATOR);
 
 // Protection contre les attaques XSS

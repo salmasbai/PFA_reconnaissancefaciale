@@ -23,7 +23,7 @@ function configureMailer() {
     $mail->Port       = 587; // Port SMTP (587 est courant pour STARTTLS, 465 pour SMTPS)
 
     // Expéditeur par défaut de l'email
-    $mail->setFrom('votre_email@gmail.com', 'ENSAO Absence System'); // <--- Votre adresse email et le nom qui apparaîtra comme expéditeur
+    $mail->setFrom('ouaryemen@gmail.com', 'ENSAO Absence System'); // <--- Votre adresse email et le nom qui apparaîtra comme expéditeur
 
     $mail->isHTML(true); // Le format de l'email sera HTML
     $mail->CharSet = 'UTF-8'; // Encodage des caractères pour supporter toutes les langues
